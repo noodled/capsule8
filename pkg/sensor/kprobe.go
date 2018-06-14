@@ -27,58 +27,13 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
-var perfTypeMapping = map[int32]expression.ValueType{
-	perf.TraceEventFieldTypeString: expression.ValueTypeString,
-
-	perf.TraceEventFieldTypeSignedInt8:  expression.ValueTypeSignedInt8,
-	perf.TraceEventFieldTypeSignedInt16: expression.ValueTypeSignedInt16,
-	perf.TraceEventFieldTypeSignedInt32: expression.ValueTypeSignedInt32,
-	perf.TraceEventFieldTypeSignedInt64: expression.ValueTypeSignedInt64,
-
-	perf.TraceEventFieldTypeUnsignedInt8:  expression.ValueTypeUnsignedInt8,
-	perf.TraceEventFieldTypeUnsignedInt16: expression.ValueTypeUnsignedInt16,
-	perf.TraceEventFieldTypeUnsignedInt32: expression.ValueTypeUnsignedInt32,
-	perf.TraceEventFieldTypeUnsignedInt64: expression.ValueTypeUnsignedInt64,
-}
-
-type kprobeFilter struct {
-	symbol    string
-	onReturn  bool
-	arguments map[string]string
-	filter    *api.Expression
-	sensor    *Sensor
-}
-
 var validSymbolRegex = regexp.MustCompile("^[A-Za-z_]{1}[\\w]*$")
 
-func newKprobeFilter(kef *api.KernelFunctionCallFilter) (*kprobeFilter, error) {
-	// The symbol must begin with [A-Za-z_] and contain only [A-Za-z0-9_]
-	// We do not accept addresses or offsets
-	if !validSymbolRegex.MatchString(kef.Symbol) {
-		return nil, fmt.Errorf("Kprobe symbol %q is invalid", kef.Symbol)
-	}
-
-	filter := &kprobeFilter{
-		symbol:    kef.Symbol,
-		arguments: kef.Arguments,
-		filter:    kef.FilterExpression,
-	}
-
-	switch kef.Type {
-	case api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_ENTER:
-		filter.onReturn = false
-	case api.KernelFunctionCallEventType_KERNEL_FUNCTION_CALL_EVENT_TYPE_EXIT:
-		filter.onReturn = true
-	default:
-		return nil, fmt.Errorf("KernelFunctionCallEventType %d is invalid",
-			kef.Type)
-	}
-
-	return filter, nil
-}
-
-func (f *kprobeFilter) decodeKprobe(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	ev := f.sensor.NewEventFromSample(sample, data)
+func (s *Subscription) decodeKprobe(
+	sample *perf.SampleRecord,
+	data perf.TraceEventSampleData,
+) (interface{}, error) {
+	ev := s.sensor.NewEventFromSample(sample, data)
 	if ev == nil {
 		return nil, nil
 	}
@@ -130,60 +85,32 @@ func (f *kprobeFilter) decodeKprobe(sample *perf.SampleRecord, data perf.TraceEv
 	return ev, nil
 }
 
-func (f *kprobeFilter) fetchargs() string {
-	args := make([]string, 0, len(f.arguments))
-	for k, v := range f.arguments {
-		args = append(args, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	return strings.Join(args, " ")
-}
-
-func registerKernelEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.KernelFunctionCallFilter,
+// RegisterKernelFunctionCallEventFilter registers a kernel function call event
+// filter with a subscription.
+func (s *Subscription) RegisterKernelFunctionCallEventFilter(
+	symbol string,
+	onReturn bool,
+	arguments map[string]string,
+	filter *expression.Expression,
 ) {
-	for _, kef := range events {
-		f, err := newKprobeFilter(kef)
-		if err != nil {
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("Invalid kprobe filter %s: %v", kef.Symbol, err))
-			continue
-		}
-
-		f.sensor = sensor
-		eventID, err := sensor.RegisterKprobe(
-			f.symbol, f.onReturn, f.fetchargs(),
-			f.decodeKprobe,
-			perf.WithEventGroup(subscr.eventGroupID))
-		if err != nil {
-			var loc string
-			if f.onReturn {
-				loc = "return"
-			} else {
-				loc = "entry"
-			}
-
-			subscr.logStatus(
-				code.Code_UNKNOWN,
-				fmt.Sprintf("Couldn't register kprobe on %s %s [%s]: %v", f.symbol, loc, f.fetchargs(), err))
-			continue
-		}
-
-		kprobeFields := sensor.Monitor.RegisteredEventFields(eventID)
-		filterTypes := make(expression.FieldTypeMap, len(kprobeFields))
-		for k, v := range kprobeFields {
-			filterTypes[k] = perfTypeMapping[v]
-		}
-
-		_, err = subscr.addEventSink(eventID, f.filter, filterTypes)
-		if err != nil {
-			subscr.logStatus(
-				code.Code_UNKNOWN,
-				fmt.Sprintf("Invalid filter expression for kernel function call filter: %v", err))
-			sensor.Monitor.UnregisterEvent(eventID)
-		}
+	// The symbol must begin with [A-Za-z_] and contain only [A-Za-z0-9_]
+	// We do not accept addresses or offsets
+	if !validSymbolRegex.MatchString(symbol) {
+		s.logStatus(
+			code.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("Kernel function call symbol %q is invalid", symbol))
+		return
 	}
+
+	l := make([]string, 0, len(arguments))
+	for k, v := range arguments {
+		l = append(l, fmt.Sprintf("%s=%s", k, v))
+	}
+	fetchargs := strings.Join(l, " ")
+
+	// Pass nil for filterTypes here to force the filter types to be
+	// determined dynamically after the kprobe is registered with the
+	// kernel.
+	s.registerKprobe(symbol, onReturn, fetchargs, s.decodeKprobe,
+		filter, nil)
 }

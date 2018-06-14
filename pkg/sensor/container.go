@@ -15,7 +15,6 @@
 package sensor
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -55,11 +54,11 @@ type ContainerCache struct {
 	// These are external event IDs registered with the sensor's event
 	// monitor instance. The cache will enqueue these events as appropriate
 	// as the cache is updated.
-	ContainerCreatedEventID   uint64 // api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED
-	ContainerRunningEventID   uint64 // api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING
-	ContainerExitedEventID    uint64 // api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED
-	ContainerDestroyedEventID uint64 // api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED
-	ContainerUpdatedEventID   uint64 // api.ContainerEventType_CONTAINER_EVENT_TYPE_UPDATED
+	ContainerCreatedEventID   uint64
+	ContainerRunningEventID   uint64
+	ContainerExitedEventID    uint64
+	ContainerDestroyedEventID uint64
+	ContainerUpdatedEventID   uint64
 }
 
 // ContainerState represents the state of a container (created, running, etc.)
@@ -395,174 +394,136 @@ func (info *ContainerInfo) Update(
 	}
 }
 
-func registerContainerEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.ContainerEventFilter,
+func (s *Subscription) registerContainerEventFilter(
+	eventID uint64,
+	full bool,
+	expr *expression.Expression,
 ) {
-	var (
-		filters       [6]*api.Expression
-		subscriptions [6]*eventSink
-		wildcards     [6]bool
-	)
-
-	for _, cef := range events {
-		t := cef.Type
-		if t < 1 || t > 5 {
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("ContainerEventType %d is invalid", t))
-			continue
-		}
-
-		if subscriptions[t] == nil {
-			var eventID uint64
-			switch t {
-			case api.ContainerEventType_CONTAINER_EVENT_TYPE_CREATED:
-				eventID = sensor.ContainerCache.ContainerCreatedEventID
-			case api.ContainerEventType_CONTAINER_EVENT_TYPE_RUNNING:
-				eventID = sensor.ContainerCache.ContainerRunningEventID
-			case api.ContainerEventType_CONTAINER_EVENT_TYPE_EXITED:
-				eventID = sensor.ContainerCache.ContainerExitedEventID
-			case api.ContainerEventType_CONTAINER_EVENT_TYPE_DESTROYED:
-				eventID = sensor.ContainerCache.ContainerDestroyedEventID
-			case api.ContainerEventType_CONTAINER_EVENT_TYPE_UPDATED:
-				eventID = sensor.ContainerCache.ContainerUpdatedEventID
-			}
-			subscriptions[t], _ =
-				subscr.addEventSink(eventID, nil, containerEventTypes)
-			subscriptions[t].containerView = cef.View
-		}
-		if cef.FilterExpression == nil {
-			wildcards[t] = true
-			filters[t] = nil
-		} else if !wildcards[t] {
-			filters[t] = expression.LogicalOr(
-				filters[t],
-				cef.FilterExpression)
-		}
+	if es, err := s.addEventSink(eventID, expr, containerEventTypes); err != nil {
+		s.logStatus(
+			code.Code_UNKNOWN,
+			fmt.Sprintf("Invalid container filter expression: %v", err))
+	} else if full {
+		es.containerView = api.ContainerEventView_FULL
+	} else {
+		es.containerView = api.ContainerEventView_BASIC
 	}
+}
 
-	for i, s := range subscriptions {
-		if filters[i] == nil {
-			// No filter, no problem
-			continue
-		}
+// RegisterContainerCreatedEventFilter registers a container created event
+// filter with a subscription.
+func (s *Subscription) RegisterContainerCreatedEventFilter(full bool, expr *expression.Expression) {
+	s.registerContainerEventFilter(
+		s.sensor.ContainerCache.ContainerCreatedEventID,
+		full, expr)
+}
 
-		expr, err := expression.NewExpression(filters[i])
-		if err != nil {
-			// Bad filter. Remove subscription
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("Invalid container filter expression: %v", err))
-			subscr.removeEventSink(s)
-			continue
-		}
+// RegisterContainerRunningEventFilter registers a container running event
+// filter with a subscription.
+func (s *Subscription) RegisterContainerRunningEventFilter(full bool, expr *expression.Expression) {
+	s.registerContainerEventFilter(
+		s.sensor.ContainerCache.ContainerRunningEventID,
+		full, expr)
+}
 
-		err = expr.Validate(containerEventTypes)
-		if err != nil {
-			// Bad filter. Remove subscription
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("Invalid container filter expression: %v", err))
-			subscr.removeEventSink(s)
-			continue
-		}
+// RegisterContainerExitedEventFilter registers a container exited event
+// filter with a subscription.
+func (s *Subscription) RegisterContainerExitedEventFilter(full bool, expr *expression.Expression) {
+	s.registerContainerEventFilter(
+		s.sensor.ContainerCache.ContainerExitedEventID,
+		full, expr)
+}
 
-		s.filter = expr
-	}
+// RegisterContainerDestroyedEventFilter registers a container destroyed event
+// filter with a subscription.
+func (s *Subscription) RegisterContainerDestroyedEventFilter(full bool, expr *expression.Expression) {
+	s.registerContainerEventFilter(
+		s.sensor.ContainerCache.ContainerDestroyedEventID,
+		full, expr)
+}
+
+// RegisterContainerUpdatedEventFilter registers a container updated event
+// filter with a subscription.
+func (s *Subscription) RegisterContainerUpdatedEventFilter(full bool, expr *expression.Expression) {
+	s.registerContainerEventFilter(
+		s.sensor.ContainerCache.ContainerUpdatedEventID,
+		full, expr)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-func newContainerFilter(ecf *api.ContainerFilter) (*containerFilter, error) {
-	if len(ecf.Ids) == 0 && len(ecf.Names) == 0 &&
-		len(ecf.ImageIds) == 0 && len(ecf.ImageNames) == 0 {
-		return nil, errors.New("Container filter is empty")
-	}
-
-	cf := &containerFilter{}
-
-	for _, v := range ecf.Ids {
-		cf.addContainerID(v)
-	}
-
-	for _, v := range ecf.Names {
-		cf.addContainerName(v)
-	}
-
-	for _, v := range ecf.ImageIds {
-		cf.addImageID(v)
-	}
-
-	for _, v := range ecf.ImageNames {
-		cf.addImageName(v)
-	}
-
-	return cf, nil
+// NewContainerFilter creates a new container filter
+func NewContainerFilter() *ContainerFilter {
+	return &ContainerFilter{}
 }
 
-type containerFilter struct {
-	containerIds   map[string]bool
-	containerNames map[string]bool
-	imageIds       map[string]bool
+// ContainerFilter is a filter that is used to filter telemetry events based
+// on container ID, container name, image ID, or image name.
+type ContainerFilter struct {
+	containerIDs   map[string]struct{}
+	containerNames map[string]struct{}
+	imageIDs       map[string]struct{}
 	imageGlobs     map[string]glob.Glob
 }
 
-func (c *containerFilter) addContainerID(cid string) {
+// Len returns the number of filters that are active within a ContainerFilter.
+func (c *ContainerFilter) Len() int {
+	return len(c.containerIDs) + len(c.containerNames) +
+		len(c.imageIDs) + len(c.imageGlobs)
+}
+
+// AddContainerID adds a container ID to a container filter.
+func (c *ContainerFilter) AddContainerID(cid string) {
 	if len(cid) > 0 {
-		if c.containerIds == nil {
-			c.containerIds = make(map[string]bool)
+		if c.containerIDs == nil {
+			c.containerIDs = make(map[string]struct{})
 		}
-		c.containerIds[cid] = true
+		c.containerIDs[cid] = struct{}{}
 	}
 }
 
-func (c *containerFilter) removeContainerID(cid string) {
-	delete(c.containerIds, cid)
-}
-
-func (c *containerFilter) addContainerName(cname string) {
+// AddContainerName adds a container name to a container filter.
+func (c *ContainerFilter) AddContainerName(cname string) {
 	if len(cname) > 0 {
 		if c.containerNames == nil {
-			c.containerNames = make(map[string]bool)
+			c.containerNames = make(map[string]struct{})
 		}
-		c.containerNames[cname] = true
+		c.containerNames[cname] = struct{}{}
 	}
 }
 
-func (c *containerFilter) addImageID(iid string) {
+// AddImageID adds an image ID to a container filter.
+func (c *ContainerFilter) AddImageID(iid string) {
 	if len(iid) > 0 {
-		if c.imageIds == nil {
-			c.imageIds = make(map[string]bool)
+		if c.imageIDs == nil {
+			c.imageIDs = make(map[string]struct{})
 		}
-		c.imageIds[iid] = true
+		c.imageIDs[iid] = struct{}{}
 	}
 }
 
-func (c *containerFilter) addImageName(iname string) {
+// AddImageName adds and image name to a container filter.
+func (c *ContainerFilter) AddImageName(iname string) error {
 	if len(iname) > 0 {
 		if c.imageGlobs == nil {
 			c.imageGlobs = make(map[string]glob.Glob)
-		} else {
-			_, ok := c.imageGlobs[iname]
-			if ok {
-				return
-			}
+		} else if _, ok := c.imageGlobs[iname]; ok {
+			return nil
 		}
-
-		g, err := glob.Compile(iname, '/')
-		if err == nil {
+		if g, err := glob.Compile(iname, '/'); err == nil {
 			c.imageGlobs[iname] = g
+		} else {
+			return err
 		}
 	}
+	return nil
 }
 
 // match evaluates the container filter for an event and determines whether the
 // event matches the criteria set forth by the filter.
-func (c *containerFilter) match(e *api.TelemetryEvent) bool {
+func (c *ContainerFilter) match(e *api.TelemetryEvent) bool {
 	// Fast path: Check if containerId is in containerIds map
-	if c.containerIds[e.ContainerId] {
+	if _, ok := c.containerIDs[e.ContainerId]; ok {
 		return true
 	}
 
@@ -571,20 +532,20 @@ func (c *containerFilter) match(e *api.TelemetryEvent) bool {
 	switch ev := e.Event.(type) {
 	case *api.TelemetryEvent_Container:
 		cev := ev.Container
-		if c.containerNames[cev.Name] {
-			c.addContainerID(e.ContainerId)
+		if _, ok := c.containerNames[cev.Name]; ok {
+			c.AddContainerID(e.ContainerId)
 			return true
 		}
 
-		if c.imageIds[cev.ImageId] {
-			c.addContainerID(e.ContainerId)
+		if _, ok := c.imageIDs[cev.ImageId]; ok {
+			c.AddContainerID(e.ContainerId)
 			return true
 		}
 
 		if c.imageGlobs != nil && cev.ImageName != "" {
 			for _, g := range c.imageGlobs {
 				if g.Match(cev.ImageName) {
-					c.addContainerID(e.ContainerId)
+					c.AddContainerID(e.ContainerId)
 					return true
 				}
 			}

@@ -23,17 +23,13 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
-type performanceFilter struct {
-	sensor *Sensor
-}
-
-func (f *performanceFilter) decodePerfCounterEvent(
+func (s *Subscription) decodePerfCounterEvent(
 	sample *perf.SampleRecord,
 	counters []perf.CounterEventValue,
 	totalTimeEnabled uint64,
 	totalTimeRunning uint64,
 ) (interface{}, error) {
-	event := f.sensor.NewEventFromSample(sample, nil)
+	event := s.sensor.NewEventFromSample(sample, nil)
 	if event == nil {
 		return nil, nil
 	}
@@ -68,79 +64,23 @@ func (f *performanceFilter) decodePerfCounterEvent(
 	return event, nil
 }
 
-func registerPerformanceEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.PerformanceEventFilter,
+// RegisterPerformanceEventFilter registers a performance event filter with a
+// subscription.
+func (s *Subscription) RegisterPerformanceEventFilter(
+	attr perf.EventAttr,
+	counters []perf.CounterEventGroupMember,
 ) {
-	f := performanceFilter{
-		sensor: sensor,
-	}
-	for _, pef := range events {
-		attr := perf.EventAttr{
-			SampleType: perf.PERF_SAMPLE_CPU | perf.PERF_SAMPLE_RAW,
-		}
-		switch pef.SampleRateType {
-		case api.SampleRateType_SAMPLE_RATE_TYPE_PERIOD:
-			if rate, ok := pef.SampleRate.(*api.PerformanceEventFilter_Period); !ok {
-				subscr.logStatus(
-					code.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("Period not properly specified for periodic sample rate"))
-				continue
-			} else {
-				attr.SamplePeriod = rate.Period
-				attr.Freq = false
-			}
-		case api.SampleRateType_SAMPLE_RATE_TYPE_FREQUENCY:
-			if rate, ok := pef.SampleRate.(*api.PerformanceEventFilter_Frequency); !ok {
-				subscr.logStatus(
-					code.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("Frequency not properly specified for frequency sample rate"))
-				continue
-			} else {
-				attr.SampleFreq = rate.Frequency
-				attr.Freq = true
-			}
-		default:
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("SampleRateType %d is invalid", pef.SampleRateType))
-			continue
-		}
-
-		counters := make([]perf.CounterEventGroupMember, 0, len(pef.Events))
-		for _, e := range pef.Events {
-			m := perf.CounterEventGroupMember{
-				Config: e.Config,
-			}
-			switch e.Type {
-			case api.PerformanceEventType_PERFORMANCE_EVENT_TYPE_HARDWARE:
-				m.EventType = perf.EventTypeHardware
-			case api.PerformanceEventType_PERFORMANCE_EVENT_TYPE_HARDWARE_CACHE:
-				m.EventType = perf.EventTypeHardwareCache
-			case api.PerformanceEventType_PERFORMANCE_EVENT_TYPE_SOFTWARE:
-				m.EventType = perf.EventTypeSoftware
-			default:
-				subscr.logStatus(
-					code.Code_INVALID_ARGUMENT,
-					fmt.Sprintf("PerformanceEventType %d is invalid", e.Type))
-				continue
-			}
-			counters = append(counters, m)
-		}
-
-		eventName := fmt.Sprintf("Performance Counters %p", pef)
-		groupID, eventID, err := sensor.Monitor.RegisterCounterEventGroup(
-			eventName, counters, f.decodePerfCounterEvent,
-			perf.WithEventAttr(&attr))
-		if err != nil {
-			subscr.logStatus(
-				code.Code_UNKNOWN,
-				fmt.Sprintf("Could not register %s performance event: %v",
-					eventName, err))
-		} else {
-			subscr.counterGroupIDs = append(subscr.counterGroupIDs, groupID)
-			subscr.addEventSink(eventID, nil, nil)
-		}
+	eventName := "Performance Counters"
+	groupID, eventID, err := s.sensor.Monitor.RegisterCounterEventGroup(
+		eventName, counters, s.decodePerfCounterEvent,
+		perf.WithEventAttr(&attr))
+	if err != nil {
+		s.logStatus(
+			code.Code_UNKNOWN,
+			fmt.Sprintf("Could not register %s performance event: %v",
+				eventName, err))
+	} else {
+		s.counterGroupIDs = append(s.counterGroupIDs, groupID)
+		s.addEventSink(eventID, nil, nil)
 	}
 }

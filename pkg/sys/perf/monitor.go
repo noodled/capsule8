@@ -626,6 +626,16 @@ func fixupEventAttr(eventAttr *EventAttr) {
 	}
 }
 
+// DoesTracepointExist returns true if the named tracepoint exists on the
+// system; otherwise, it returns false.
+func (monitor *EventMonitor) DoesTracepointExist(name string) bool {
+	dirname := filepath.Join(monitor.tracingDir, "events", name)
+	if i, err := os.Stat(dirname); err == nil {
+		return i.IsDir()
+	}
+	return false
+}
+
 func (monitor *EventMonitor) writeTraceCommand(name string, cmd string) error {
 	filename := filepath.Join(monitor.tracingDir, name)
 	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND, 0)

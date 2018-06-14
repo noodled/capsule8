@@ -1195,128 +1195,46 @@ func commToString(comm []interface{}) string {
 	return string(s)
 }
 
-func rewriteProcessEventFilter(pef *api.ProcessEventFilter) {
-	switch pef.Type {
-	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
-		if pef.ExecFilename != nil {
-			newExpr := expression.Equal(
-				expression.Identifier("filename"),
-				expression.Value(pef.ExecFilename.Value))
-			pef.FilterExpression = expression.LogicalAnd(
-				newExpr, pef.FilterExpression)
-			pef.ExecFilename = nil
-			pef.ExecFilenamePattern = nil
-		} else if pef.ExecFilenamePattern != nil {
-			newExpr := expression.Like(
-				expression.Identifier("filename"),
-				expression.Value(pef.ExecFilenamePattern.Value))
-			pef.FilterExpression = expression.LogicalAnd(
-				newExpr, pef.FilterExpression)
-			pef.ExecFilenamePattern = nil
-		}
-	case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
-		if pef.ExitCode != nil {
-			newExpr := expression.Equal(
-				expression.Identifier("code"),
-				expression.Value(pef.ExitCode.Value))
-			pef.FilterExpression = expression.LogicalAnd(
-				newExpr, pef.FilterExpression)
-			pef.ExitCode = nil
-		}
+func (s *Subscription) registerProcessEventFilter(
+	eventID uint64,
+	expr *expression.Expression,
+	filterTypes expression.FieldTypeMap,
+) {
+	if _, err := s.addEventSink(eventID, expr, filterTypes); err != nil {
+		s.logStatus(
+			code.Code_UNKNOWN,
+			fmt.Sprintf("Invalid process filter expression: %v", err))
 	}
 }
 
-func registerProcessEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.ProcessEventFilter,
-) {
-	var (
-		filters       [5]*api.Expression
-		subscriptions [5]*eventSink
-		wildcards     [5]bool
-	)
+// RegisterProcessExecEventFilter registers a process exec event filter with a
+// subscription.
+func (s *Subscription) RegisterProcessExecEventFilter(expr *expression.Expression) {
+	s.registerProcessEventFilter(
+		s.sensor.ProcessCache.ProcessExecEventID,
+		expr, processExecEventTypes)
+}
 
-	for _, pef := range events {
-		// Translate deprecated fields into an expression
-		rewriteProcessEventFilter(pef)
+// RegisterProcessExitEventFilter registers a process exit event filter with a
+// subscription.
+func (s *Subscription) RegisterProcessExitEventFilter(expr *expression.Expression) {
+	s.registerProcessEventFilter(
+		s.sensor.ProcessCache.ProcessExitEventID,
+		expr, processExitEventTypes)
+}
 
-		t := pef.Type
-		if t < 1 || t > api.ProcessEventType(len(subscriptions)-1) {
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("ProcessEventType %d is invalid", t))
-			continue
-		}
+// RegisterProcessForkEventFilter registers a process fork event filter with a
+// subscription.
+func (s *Subscription) RegisterProcessForkEventFilter(expr *expression.Expression) {
+	s.registerProcessEventFilter(
+		s.sensor.ProcessCache.ProcessForkEventID,
+		expr, processForkEventTypes)
+}
 
-		if subscriptions[t] == nil {
-			var (
-				eventID uint64
-				types   expression.FieldTypeMap
-			)
-
-			switch t {
-			case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
-				eventID = sensor.ProcessCache.ProcessExecEventID
-				types = processExecEventTypes
-			case api.ProcessEventType_PROCESS_EVENT_TYPE_FORK:
-				eventID = sensor.ProcessCache.ProcessForkEventID
-				types = processForkEventTypes
-			case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
-				eventID = sensor.ProcessCache.ProcessExitEventID
-				types = processExitEventTypes
-			case api.ProcessEventType_PROCESS_EVENT_TYPE_UPDATE:
-				eventID = sensor.ProcessCache.ProcessUpdateEventID
-				types = processUpdateEventTypes
-			}
-			subscriptions[t], _ =
-				subscr.addEventSink(eventID, nil, types)
-		}
-		if pef.FilterExpression == nil {
-			wildcards[t] = true
-			filters[t] = nil
-		} else if !wildcards[t] {
-			filters[t] = expression.LogicalOr(
-				filters[t],
-				pef.FilterExpression)
-		}
-	}
-
-	for t, s := range subscriptions {
-		if filters[t] == nil {
-			// No filter, no problem
-			continue
-		}
-
-		expr, err := expression.NewExpression(filters[t])
-		if err != nil {
-			// Bad filter. Remove subscription
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("Invalid process filter expression: %v", err))
-			subscr.removeEventSink(s)
-			continue
-		}
-
-		switch api.ProcessEventType(t) {
-		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
-			err = expr.Validate(processExecEventTypes)
-		case api.ProcessEventType_PROCESS_EVENT_TYPE_FORK:
-			err = expr.Validate(processForkEventTypes)
-		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXIT:
-			err = expr.Validate(processExitEventTypes)
-		case api.ProcessEventType_PROCESS_EVENT_TYPE_UPDATE:
-			err = expr.Validate(processUpdateEventTypes)
-		}
-		if err != nil {
-			// Bad filter. Remove subscription
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("Invalid process filter expression: %v", err))
-			subscr.removeEventSink(s)
-			continue
-		}
-
-		s.filter = expr
-	}
+// RegisterProcessUpdateEventFilter registers a process update event filter
+// with a subscription.
+func (s *Subscription) RegisterProcessUpdateEventFilter(expr *expression.Expression) {
+	s.registerProcessEventFilter(
+		s.sensor.ProcessCache.ProcessUpdateEventID,
+		expr, processUpdateEventTypes)
 }

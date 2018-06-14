@@ -15,14 +15,10 @@
 package sensor
 
 import (
-	"fmt"
-
 	api "github.com/capsule8/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
-
-	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
 var fileOpenEventTypes = expression.FieldTypeMap{
@@ -36,15 +32,15 @@ const (
 	fsDoSysOpenKprobeFetchargs = "filename=+0(%si):string flags=%dx:s32 mode=%cx:s32"
 )
 
-type fileOpenFilter struct {
-	sensor *Sensor
-}
-
-func (f *fileOpenFilter) decodeDoSysOpen(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	ev := f.sensor.NewEventFromSample(sample, data)
+func (s *Subscription) decodeDoSysOpen(
+	sample *perf.SampleRecord,
+	data perf.TraceEventSampleData,
+) (interface{}, error) {
+	ev := s.sensor.NewEventFromSample(sample, data)
 	if ev == nil {
 		return nil, nil
 	}
+
 	ev.Event = &api.TelemetryEvent_File{
 		File: &api.FileEvent{
 			Type:      api.FileEventType_FILE_EVENT_TYPE_OPEN,
@@ -57,95 +53,10 @@ func (f *fileOpenFilter) decodeDoSysOpen(sample *perf.SampleRecord, data perf.Tr
 	return ev, nil
 }
 
-func rewriteFileEventFilter(fef *api.FileEventFilter) {
-	if fef.Filename != nil {
-		newExpr := expression.Equal(
-			expression.Identifier("filename"),
-			expression.Value(fef.Filename.Value))
-		fef.FilterExpression = expression.LogicalAnd(
-			newExpr, fef.FilterExpression)
-		fef.Filename = nil
-		fef.FilenamePattern = nil
-	} else if fef.FilenamePattern != nil {
-		newExpr := expression.Like(
-			expression.Identifier("filename"),
-			expression.Value(fef.FilenamePattern.Value))
-		fef.FilterExpression = expression.LogicalAnd(
-			newExpr, fef.FilterExpression)
-		fef.FilenamePattern = nil
-	}
-
-	if fef.OpenFlagsMask != nil {
-		newExpr := expression.BitwiseAnd(
-			expression.Identifier("flags"),
-			expression.Value(fef.OpenFlagsMask.Value))
-		fef.FilterExpression = expression.LogicalAnd(
-			newExpr, fef.FilterExpression)
-		fef.OpenFlagsMask = nil
-	}
-
-	if fef.CreateModeMask != nil {
-		newExpr := expression.BitwiseAnd(
-			expression.Identifier("mode"),
-			expression.Value(fef.CreateModeMask.Value))
-		fef.FilterExpression = expression.LogicalAnd(
-			newExpr, fef.FilterExpression)
-		fef.CreateModeMask = nil
-	}
-}
-
-func registerFileEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.FileEventFilter,
-) {
-	var (
-		filter   *api.Expression
-		wildcard bool
-	)
-
-	for _, fef := range events {
-		if fef.Type != api.FileEventType_FILE_EVENT_TYPE_OPEN {
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("FileEventType %d is invalid", fef.Type))
-			continue
-		}
-
-		// Translate deprecated fields into an expression
-		rewriteFileEventFilter(fef)
-
-		if fef.FilterExpression == nil {
-			wildcard = true
-			filter = nil
-		} else if wildcard == false {
-			filter = expression.LogicalOr(filter, fef.FilterExpression)
-		}
-	}
-	if wildcard == false && filter == nil {
-		return
-	}
-
-	f := fileOpenFilter{
-		sensor: sensor,
-	}
-
-	eventID, err := sensor.RegisterKprobe(
-		fsDoSysOpenKprobeAddress, false,
-		fsDoSysOpenKprobeFetchargs, f.decodeDoSysOpen,
-		perf.WithEventGroup(subscr.eventGroupID))
-	if err != nil {
-		subscr.logStatus(
-			code.Code_UNKNOWN,
-			fmt.Sprintf("Could not register kprobe %s: %v", fsDoSysOpenKprobeAddress, err))
-		return
-	}
-
-	_, err = subscr.addEventSink(eventID, filter, fileOpenEventTypes)
-	if err != nil {
-		subscr.logStatus(
-			code.Code_UNKNOWN,
-			fmt.Sprintf("Invalid filter expression for file open filter: %v", err))
-		sensor.Monitor.UnregisterEvent(eventID)
-	}
+// RegisterFileOpenEventFilter registers a file open event filter with a
+// subscription.
+func (s *Subscription) RegisterFileOpenEventFilter(filter *expression.Expression) {
+	s.registerKprobe(fsDoSysOpenKprobeAddress, false,
+		fsDoSysOpenKprobeFetchargs, s.decodeDoSysOpen,
+		filter, fileOpenEventTypes)
 }

@@ -15,14 +15,10 @@
 package sensor
 
 import (
-	"fmt"
-
 	api "github.com/capsule8/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
-
-	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
 var networkAttemptEventTypes = expression.FieldTypeMap{
@@ -75,11 +71,7 @@ const (
 		"sin6_port=+2(%r8):u16 sin6_addr_high=+8(%r8):u64 sin6_addr_low=+16(%r8):u64"
 )
 
-type networkFilter struct {
-	sensor *Sensor
-}
-
-func (f *networkFilter) newNetworkEvent(
+func (s *Subscription) newNetworkEvent(
 	eventType api.NetworkEventType,
 	sample *perf.SampleRecord,
 	data perf.TraceEventSampleData,
@@ -101,7 +93,7 @@ func (f *networkFilter) newNetworkEvent(
 		}
 	}
 
-	event := f.sensor.NewEventFromSample(sample, data)
+	event := s.sensor.NewEventFromSample(sample, data)
 	if event == nil {
 		return nil
 	}
@@ -163,38 +155,38 @@ func (f *networkFilter) newNetworkEvent(
 	return event
 }
 
-func (f *networkFilter) decodeSysEnterAccept(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_ATTEMPT, sample, data)
+func (s *Subscription) decodeSysEnterAccept(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_ATTEMPT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysExitAccept(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT, sample, data)
+func (s *Subscription) decodeSysExitAccept(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysBind(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_ATTEMPT, sample, data)
+func (s *Subscription) decodeSysBind(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_ATTEMPT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysExitBind(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_RESULT, sample, data)
+func (s *Subscription) decodeSysExitBind(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_RESULT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysConnect(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_ATTEMPT, sample, data)
+func (s *Subscription) decodeSysConnect(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_ATTEMPT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysExitConnect(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT, sample, data)
+func (s *Subscription) decodeSysExitConnect(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysEnterListen(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_ATTEMPT, sample, data)
+func (s *Subscription) decodeSysEnterListen(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_ATTEMPT, sample, data)
 
 	network := event.Event.(*api.TelemetryEvent_Network).Network
 	network.Backlog = data["backlog"].(uint64)
@@ -202,199 +194,141 @@ func (f *networkFilter) decodeSysEnterListen(sample *perf.SampleRecord, data per
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysExitListen(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_RESULT, sample, data)
+func (s *Subscription) decodeSysExitListen(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_RESULT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysEnterRecvfrom(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_ATTEMPT, sample, data)
+func (s *Subscription) decodeSysEnterRecvfrom(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_ATTEMPT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysExitRecvfrom(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_RESULT, sample, data)
+func (s *Subscription) decodeSysExitRecvfrom(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_RESULT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysSendto(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_ATTEMPT, sample, data)
+func (s *Subscription) decodeSysSendto(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_ATTEMPT, sample, data)
 	return event, nil
 }
 
-func (f *networkFilter) decodeSysExitSendto(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
-	event := f.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_RESULT, sample, data)
+func (s *Subscription) decodeSysExitSendto(sample *perf.SampleRecord, data perf.TraceEventSampleData) (interface{}, error) {
+	event := s.newNetworkEvent(api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_RESULT, sample, data)
 	return event, nil
 }
 
-type networkFilterItem struct {
-	filter   *api.Expression
-	wildcard bool
+// RegisterNetworkAcceptAttemptEventFilter registers a network accept attempt
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkAcceptAttemptEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_enter_accept",
+		s.decodeSysEnterAccept,
+		expr, networkAttemptEventTypes)
+	s.registerTracepoint("syscalls/sys_enter_accept4",
+		s.decodeSysEnterAccept,
+		expr, networkAttemptEventTypes)
 }
 
-func (nfi *networkFilterItem) add(nef *api.NetworkEventFilter) {
-	if nef.FilterExpression == nil {
-		nfi.wildcard = true
-		nfi.filter = nil
-	} else if nfi.wildcard == false {
-		nfi.filter = expression.LogicalOr(nfi.filter,
-			nef.FilterExpression)
-	}
+// RegisterNetworkAcceptResultEventFilter registers a network accept result
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkAcceptResultEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_exit_accept",
+		s.decodeSysExitAccept,
+		expr, networkResultEventTypes)
+	s.registerTracepoint("syscalls/sys_exit_accept4",
+		s.decodeSysExitAccept,
+		expr, networkResultEventTypes)
 }
 
-type networkFilterSet struct {
-	acceptAttemptFilters   networkFilterItem
-	acceptResultFilters    networkFilterItem
-	bindAttemptFilters     networkFilterItem
-	bindResultFilters      networkFilterItem
-	connectAttemptFilters  networkFilterItem
-	connectResultFilters   networkFilterItem
-	listenAttemptFilters   networkFilterItem
-	listenResultFilters    networkFilterItem
-	sendtoAttemptFilters   networkFilterItem
-	sendtoResultFilters    networkFilterItem
-	recvfromAttemptFilters networkFilterItem
-	recvfromResultFilters  networkFilterItem
+// RegisterNetworkBindAttemptEventFilter registers a network bind attempt event
+// filter with a subscription.
+func (s *Subscription) RegisterNetworkBindAttemptEventFilter(expr *expression.Expression) {
+	s.registerKprobe(networkKprobeBindSymbol, false,
+		networkKprobeBindFetchargs, s.decodeSysBind,
+		expr, networkAttemptWithAddressEventTypes)
 }
 
-func (nfs *networkFilterSet) add(
-	subscr *subscription,
-	nef *api.NetworkEventFilter,
-) {
-	switch nef.Type {
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_ATTEMPT:
-		nfs.acceptAttemptFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_ACCEPT_RESULT:
-		nfs.acceptResultFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_ATTEMPT:
-		nfs.bindAttemptFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_BIND_RESULT:
-		nfs.bindResultFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_ATTEMPT:
-		nfs.connectAttemptFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_CONNECT_RESULT:
-		nfs.connectResultFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_ATTEMPT:
-		nfs.listenAttemptFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_LISTEN_RESULT:
-		nfs.listenResultFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_ATTEMPT:
-		nfs.recvfromAttemptFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_RECVFROM_RESULT:
-		nfs.recvfromResultFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_ATTEMPT:
-		nfs.sendtoAttemptFilters.add(nef)
-	case api.NetworkEventType_NETWORK_EVENT_TYPE_SENDTO_RESULT:
-		nfs.sendtoResultFilters.add(nef)
-	default:
-		subscr.logStatus(
-			code.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("Invalid NetworkEventType %d", nef.Type))
-	}
+// RegisterNetworkBindResultEventFilter registers a network bind result event
+// filter with a subscription.
+func (s *Subscription) RegisterNetworkBindResultEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_exit_bind",
+		s.decodeSysExitBind,
+		expr, networkResultEventTypes)
 }
 
-func registerEvent(
-	sensor *Sensor,
-	subscr *subscription,
-	name string,
-	fn perf.TraceEventDecoderFn,
-	filter networkFilterItem,
-	filterTypes expression.FieldTypeMap,
-) {
-	if !filter.wildcard && filter.filter == nil {
-		return
-	}
-
-	eventID, err := sensor.Monitor.RegisterTracepoint(name, fn,
-		perf.WithEventGroup(subscr.eventGroupID))
-	if err != nil {
-		subscr.logStatus(
-			code.Code_UNKNOWN,
-			fmt.Sprintf("Could not register tracepoint %s: %v", name, err))
-		return
-	}
-
-	_, err = subscr.addEventSink(eventID, filter.filter, filterTypes)
-	if err != nil {
-		subscr.logStatus(
-			code.Code_UNKNOWN,
-			fmt.Sprintf("Invalid filter expression for network filter: %v", err))
-		sensor.Monitor.UnregisterEvent(eventID)
-	}
+// RegisterNetworkConnectAttemptEventFilter registers a network connect attempt
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkConnectAttemptEventFilter(expr *expression.Expression) {
+	s.registerKprobe(networkKprobeConnectSymbol, false,
+		networkKprobeConnectFetchargs, s.decodeSysConnect,
+		expr, networkAttemptWithAddressEventTypes)
 }
 
-func registerKprobe(
-	sensor *Sensor,
-	subscr *subscription,
-	symbol string,
-	fetchargs string,
-	fn perf.TraceEventDecoderFn,
-	filter networkFilterItem,
-	filterTypes expression.FieldTypeMap,
-) {
-	if !filter.wildcard && filter.filter == nil {
-		return
-	}
-
-	eventID, err := sensor.RegisterKprobe(symbol, false, fetchargs, fn,
-		perf.WithEventGroup(subscr.eventGroupID))
-	if err != nil {
-		subscr.logStatus(
-			code.Code_UNKNOWN,
-			fmt.Sprintf("Could not register network kprobe %s: %v", symbol, err))
-		return
-	}
-
-	_, err = subscr.addEventSink(eventID, filter.filter, filterTypes)
-	if err != nil {
-		subscr.logStatus(
-			code.Code_UNKNOWN,
-			fmt.Sprintf("Invalid filter expression for network filter: %v", err))
-		sensor.Monitor.UnregisterEvent(eventID)
-	}
+// RegisterNetworkConnectResultEventFilter registers a network connect result
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkConnectResultEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_exit_connect",
+		s.decodeSysExitConnect,
+		expr, networkResultEventTypes)
 }
 
-func registerNetworkEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.NetworkEventFilter,
-) {
-	nfs := networkFilterSet{}
-	for _, nef := range events {
-		nfs.add(subscr, nef)
-	}
+// RegisterNetworkListenAttemptEventFilter registers a network listen attempt
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkListenAttemptEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_enter_listen",
+		s.decodeSysEnterListen,
+		expr, networkListenAttemptEventTypes)
+}
 
-	f := networkFilter{
-		sensor: sensor,
-	}
+// RegisterNetworkListenResultEventFilter registers a network listen result
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkListenResultEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_exit_listen",
+		s.decodeSysExitListen,
+		expr, networkResultEventTypes)
+}
 
-	registerEvent(sensor, subscr, "syscalls/sys_enter_accept", f.decodeSysEnterAccept, nfs.acceptAttemptFilters, networkAttemptEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_exit_accept", f.decodeSysExitAccept, nfs.acceptResultFilters, networkResultEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_enter_accept4", f.decodeSysEnterAccept, nfs.acceptAttemptFilters, networkAttemptEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_exit_accept4", f.decodeSysExitAccept, nfs.acceptResultFilters, networkResultEventTypes)
+// RegisterNetworkRecvfromAttemptEventFilter registers a network recvfrom
+// attempt event filter with a subscription.
+func (s *Subscription) RegisterNetworkRecvfromAttemptEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_enter_recvfrom",
+		s.decodeSysEnterRecvfrom,
+		expr, networkAttemptEventTypes)
+	s.registerTracepoint("syscalls/sys_enter_recvmsg",
+		s.decodeSysEnterRecvfrom,
+		expr, networkAttemptEventTypes)
+}
 
-	registerKprobe(sensor, subscr, networkKprobeBindSymbol, networkKprobeBindFetchargs, f.decodeSysBind, nfs.bindAttemptFilters, networkAttemptWithAddressEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_exit_bind", f.decodeSysExitBind, nfs.bindResultFilters, networkResultEventTypes)
+// RegisterNetworkRecvfromResultEventFilter registers a network recvfrom result
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkRecvfromResultEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_exit_recvfrom",
+		s.decodeSysExitRecvfrom,
+		expr, networkResultEventTypes)
+	s.registerTracepoint("syscalls/sys_exit_recvmsg",
+		s.decodeSysExitRecvfrom,
+		expr, networkResultEventTypes)
+}
 
-	registerKprobe(sensor, subscr, networkKprobeConnectSymbol, networkKprobeConnectFetchargs, f.decodeSysConnect, nfs.connectAttemptFilters, networkAttemptWithAddressEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_exit_connect", f.decodeSysExitConnect, nfs.connectResultFilters, networkResultEventTypes)
+// RegisterNetworkSendtoAttemptEventFilter registers a network sendto attempt
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkSendtoAttemptEventFilter(expr *expression.Expression) {
+	s.registerKprobe(networkKprobeSendmsgSymbol, false,
+		networkKprobeSendmsgFetchargs, s.decodeSysSendto,
+		expr, networkAttemptWithAddressEventTypes)
+	s.registerKprobe(networkKprobeSendtoSymbol, false,
+		networkKprobeSendtoFetchargs, s.decodeSysSendto,
+		expr, networkAttemptWithAddressEventTypes)
+}
 
-	registerEvent(sensor, subscr, "syscalls/sys_enter_listen", f.decodeSysEnterListen, nfs.listenAttemptFilters, networkListenAttemptEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_exit_listen", f.decodeSysExitListen, nfs.listenResultFilters, networkResultEventTypes)
-
-	// There are two additional system calls added in Linux 3.0 that are of
-	// interest, but there's no way to get all of the data without eBPF
-	// support, so don't bother with them for now.
-
-	registerEvent(sensor, subscr, "syscalls/sys_enter_recvfrom", f.decodeSysEnterRecvfrom, nfs.recvfromAttemptFilters, networkAttemptEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_enter_recvmsg", f.decodeSysEnterRecvfrom, nfs.recvfromAttemptFilters, networkAttemptEventTypes)
-
-	registerEvent(sensor, subscr, "syscalls/sys_exit_recvfrom", f.decodeSysExitRecvfrom, nfs.recvfromResultFilters, networkResultEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_exit_recvmsg", f.decodeSysExitRecvfrom, nfs.recvfromResultFilters, networkResultEventTypes)
-
-	registerKprobe(sensor, subscr, networkKprobeSendmsgSymbol, networkKprobeSendmsgFetchargs, f.decodeSysSendto, nfs.sendtoAttemptFilters, networkAttemptWithAddressEventTypes)
-	registerKprobe(sensor, subscr, networkKprobeSendtoSymbol, networkKprobeSendtoFetchargs, f.decodeSysSendto, nfs.sendtoAttemptFilters, networkAttemptWithAddressEventTypes)
-
-	registerEvent(sensor, subscr, "syscalls/sys_exit_sendmsg", f.decodeSysExitSendto, nfs.sendtoResultFilters, networkResultEventTypes)
-	registerEvent(sensor, subscr, "syscalls/sys_exit_sendto", f.decodeSysExitSendto, nfs.sendtoResultFilters, networkResultEventTypes)
+// RegisterNetworkSendtoResultEventFilter registers a network sendto result
+// event filter with a subscription.
+func (s *Subscription) RegisterNetworkSendtoResultEventFilter(expr *expression.Expression) {
+	s.registerTracepoint("syscalls/sys_exit_sendmsg",
+		s.decodeSysExitSendto,
+		expr, networkResultEventTypes)
+	s.registerTracepoint("syscalls/sys_exit_sendto",
+		s.decodeSysExitSendto,
+		expr, networkResultEventTypes)
 }

@@ -21,15 +21,9 @@ import (
 )
 
 func TestFilterContainerId(t *testing.T) {
-	cf, err := newContainerFilter(&api.ContainerFilter{
-		Ids: []string{
-			"alice",
-			"bob",
-		},
-	})
-	if err != nil {
-		t.Error(err)
-	}
+	cf := NewContainerFilter()
+	cf.AddContainerID("alice")
+	cf.AddContainerID("bob")
 
 	if match := cf.match(&api.TelemetryEvent{
 		ContainerId: "alice",
@@ -45,15 +39,9 @@ func TestFilterContainerId(t *testing.T) {
 }
 
 func TestFilterContainerImageId(t *testing.T) {
-	cf, err := newContainerFilter(&api.ContainerFilter{
-		ImageIds: []string{
-			"alice",
-			"bob",
-		},
-	})
-	if err != nil {
-		t.Error(err)
-	}
+	cf := NewContainerFilter()
+	cf.AddImageID("alice")
+	cf.AddImageID("bob")
 
 	if match := cf.match(&api.TelemetryEvent{
 		ContainerId: "pass",
@@ -79,15 +67,9 @@ func TestFilterContainerImageId(t *testing.T) {
 }
 
 func TestFilterContainerImageNames(t *testing.T) {
-	cf, err := newContainerFilter(&api.ContainerFilter{
-		ImageNames: []string{
-			"alice",
-			"bob",
-		},
-	})
-	if err != nil {
-		t.Error(err)
-	}
+	cf := NewContainerFilter()
+	cf.AddImageName("alice")
+	cf.AddImageName("bob")
 
 	if match := cf.match(&api.TelemetryEvent{
 		ContainerId: "pass",
@@ -113,15 +95,9 @@ func TestFilterContainerImageNames(t *testing.T) {
 }
 
 func TestFilterContainerNames(t *testing.T) {
-	cf, err := newContainerFilter(&api.ContainerFilter{
-		Names: []string{
-			"alice",
-			"bob",
-		},
-	})
-	if err != nil {
-		t.Error(err)
-	}
+	cf := NewContainerFilter()
+	cf.AddContainerName("alice")
+	cf.AddContainerName("bob")
 
 	if match := cf.match(&api.TelemetryEvent{
 		ContainerId: "pass",

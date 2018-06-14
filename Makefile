@@ -232,7 +232,7 @@ check:
 #
 # Run unit tests
 #
-test: GO_TEST_FLAGS+=-cover -coverprofile coverage.out
+test: GO_TEST_FLAGS+=-cover -coverprofile=coverage.out
 test:
 	$(GO_TEST) $(GO_TEST_FLAGS) $(TEST_SRC) $(TEST_FLAGS)
 

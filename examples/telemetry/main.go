@@ -112,7 +112,7 @@ func createSubscription() *api.Subscription {
 
 			FilterExpression: expression.NotEqual(
 				expression.Identifier("arg0"),
-				expression.Value(int64(0))),
+				expression.Value(uint64(0))),
 		},
 	}
 

@@ -16,12 +16,10 @@ package sensor
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,9 +39,6 @@ import (
 	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
-
-	"google.golang.org/genproto/googleapis/rpc/code"
-	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 )
 
 type newSensorOptions struct {
@@ -621,82 +616,20 @@ func (s *Sensor) RegisterKprobe(
 	return s.Monitor.RegisterKprobe(address, onReturn, output, fn, options...)
 }
 
-// NewSubscription creates a new telemetry subscription from the given
-// api.Subscription descriptor. Canceling the specified context will cancel
-// the subscription. For each event matching the subscription, the specified
-// dispatch functional will be called.
-func (s *Sensor) NewSubscription(
-	ctx context.Context,
-	sub *api.Subscription,
-	dispatchFn eventSinkDispatchFn,
-) ([]*google_rpc.Status, error) {
-	if sub.EventFilter == nil {
-		glog.V(1).Infof("Invalid subscription: %+v", sub)
-		return nil, errors.New("Invalid subscription (no EventFilter)")
-	}
-
-	groupID, err := s.Monitor.RegisterEventGroup("")
-	if err != nil {
-		return nil, err
-	}
-	subscr := newSubscription(s, groupID, dispatchFn)
-	glog.V(1).Infof("Subscription %d: %+v", groupID, sub)
-
-	if sub.ContainerFilter != nil {
-		subscr.containerFilter, err = newContainerFilter(sub.ContainerFilter)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	registerChargenEvents(s, subscr, sub.EventFilter.ChargenEvents)
-	registerContainerEvents(s, subscr, sub.EventFilter.ContainerEvents)
-	registerFileEvents(s, subscr, sub.EventFilter.FileEvents)
-	registerKernelEvents(s, subscr, sub.EventFilter.KernelEvents)
-	registerNetworkEvents(s, subscr, sub.EventFilter.NetworkEvents)
-	registerPerformanceEvents(s, subscr, sub.EventFilter.PerformanceEvents)
-	registerProcessEvents(s, subscr, sub.EventFilter.ProcessEvents)
-	registerSyscallEvents(s, subscr, sub.EventFilter.SyscallEvents)
-	registerTimerEvents(s, subscr, sub.EventFilter.TickerEvents)
-
-	status := subscr.status
-	subscr.status = nil
-	if len(status) > 0 {
-		for _, s := range status {
-			glog.V(1).Infof("Subscription %d: [%s] %s",
-				groupID, code.Code_name[s.Code], s.Message)
-		}
-	} else {
-		status = []*google_rpc.Status{{Code: int32(code.Code_OK)}}
-	}
-
-	if len(subscr.eventSinks) == 0 {
-		return status, errors.New("Invalid subscription (no filters specified)")
-	}
-
-	s.eventMap.subscribe(subscr)
-	glog.V(2).Infof("Subscription %d registered", subscr.eventGroupID)
-
-	go func() {
-		<-ctx.Done()
-		glog.V(2).Infof("Subscription %d control channel closed",
-			subscr.eventGroupID)
-
-		for _, id := range subscr.counterGroupIDs {
-			s.Monitor.UnregisterEventGroup(id)
-		}
-
-		s.Monitor.UnregisterEventGroup(subscr.eventGroupID)
-		s.eventMap.unsubscribe(subscr, nil)
-	}()
-
-	s.Monitor.EnableGroup(groupID)
-	for _, id := range subscr.counterGroupIDs {
-		s.Monitor.EnableGroup(id)
-	}
-
+// NewSubscription creates a new telemetry subscription
+func (s *Sensor) NewSubscription() *Subscription {
 	atomic.AddInt32(&s.Metrics.Subscriptions, 1)
-	return status, nil
+
+	// Use an empty dispatch function until Subscription.Run is called with
+	// the real dispatch function to use. This is to avoid an extra branch
+	// during dispatch to check for a nil dispatchFn. Since under normal
+	// operation this case is impossible, it's a waste to add the check
+	// when it's so easy to handle otherwise during the subscription
+	// window.
+	return &Subscription{
+		sensor:     s,
+		dispatchFn: func(e *api.TelemetryEvent) {},
+	}
 }
 
 func (s *Sensor) dispatchSamples(samples []perf.EventMonitorSample) {

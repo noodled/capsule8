@@ -15,44 +15,30 @@
 package sensor
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
 	api "github.com/capsule8/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/expression"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
+
+	"github.com/golang/glog"
 
 	"google.golang.org/genproto/googleapis/rpc/code"
 	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 )
 
-type subscription struct {
-	sensor          *Sensor
-	eventGroupID    int32
-	counterGroupIDs []int32
-	containerFilter *containerFilter
-	eventSinks      map[uint64]*eventSink
-	status          []*google_rpc.Status
-	dispatchFn      eventSinkDispatchFn
-}
-
-func newSubscription(
-	sensor *Sensor,
-	eventGroupID int32,
-	dispatchFn eventSinkDispatchFn,
-) *subscription {
-	return &subscription{
-		sensor:       sensor,
-		eventGroupID: eventGroupID,
-		dispatchFn:   dispatchFn,
-	}
-}
-
-type eventSinkDispatchFn func(event *api.TelemetryEvent)
+// EventSinkDispatchFn is a function that is called to deliver a telemetry
+// event for a subscription.
+type EventSinkDispatchFn func(event *api.TelemetryEvent)
 type eventSinkUnregisterFn func(es *eventSink)
 
 type eventSink struct {
-	subscription  *subscription
+	subscription  *Subscription
 	eventID       uint64
 	unregister    eventSinkUnregisterFn
 	filter        *expression.Expression
@@ -60,9 +46,93 @@ type eventSink struct {
 	containerView api.ContainerEventView
 }
 
-func (s *subscription) addEventSink(
+// Subscription contains all of the information about a client subscription
+// for telemetry events to be delivered by the sensor.
+type Subscription struct {
+	sensor          *Sensor
+	eventGroupID    int32
+	counterGroupIDs []int32
+	containerFilter *ContainerFilter
+	eventSinks      map[uint64]*eventSink
+	status          []*google_rpc.Status
+	dispatchFn      EventSinkDispatchFn
+}
+
+func (s *Subscription) id() int32 {
+	if s.eventGroupID != 0 {
+		return s.eventGroupID
+	}
+	if len(s.counterGroupIDs) > 0 {
+		return s.counterGroupIDs[0]
+	}
+	return 0
+}
+
+// Run enables and runs a telemetry event subscription. Canceling the specified
+// context will cancel the subscription. For each event matching the
+// subscription, the specified dispatch function will be called.
+func (s *Subscription) Run(
+	ctx context.Context,
+	dispatchFn EventSinkDispatchFn,
+) ([]*google_rpc.Status, error) {
+	status := s.status
+	s.status = nil
+	if len(status) > 0 {
+		for _, st := range status {
+			glog.V(1).Infof("Subscription %d: [%s] %s",
+				s.id(), code.Code_name[st.Code], st.Message)
+		}
+	} else {
+		status = []*google_rpc.Status{{Code: int32(code.Code_OK)}}
+	}
+
+	if len(s.eventSinks) == 0 {
+		return status, errors.New("Invalid subscription (no filters specified)")
+	}
+
+	s.sensor.eventMap.subscribe(s)
+	glog.V(2).Infof("Subscription %d registered", s.id())
+
+	go func() {
+		<-ctx.Done()
+		glog.V(2).Infof("Subscription %d control channel closed", s.id())
+
+		s.Close()
+	}()
+
+	if dispatchFn != nil {
+		s.dispatchFn = dispatchFn
+	}
+
+	if s.eventGroupID != 0 {
+		s.sensor.Monitor.EnableGroup(s.eventGroupID)
+	}
+	for _, id := range s.counterGroupIDs {
+		s.sensor.Monitor.EnableGroup(id)
+	}
+
+	return status, nil
+}
+
+// Close disables a running subscription.
+func (s *Subscription) Close() {
+	for _, id := range s.counterGroupIDs {
+		s.sensor.Monitor.UnregisterEventGroup(id)
+	}
+	if s.eventGroupID != 0 {
+		s.sensor.Monitor.UnregisterEventGroup(s.eventGroupID)
+	}
+	s.sensor.eventMap.unsubscribe(s, nil)
+}
+
+// SetContainerFilter sets a container filter to be used for a subscription.
+func (s *Subscription) SetContainerFilter(f *ContainerFilter) {
+	s.containerFilter = f
+}
+
+func (s *Subscription) addEventSink(
 	eventID uint64,
-	filterExpression *api.Expression,
+	filterExpression *expression.Expression,
 	filterTypes expression.FieldTypeMap,
 ) (*eventSink, error) {
 	es := &eventSink{
@@ -72,12 +142,7 @@ func (s *subscription) addEventSink(
 	}
 
 	if filterExpression != nil {
-		expr, err := expression.NewExpression(filterExpression)
-		if err != nil {
-			return nil, err
-		}
-
-		if err = expr.Validate(filterTypes); err != nil {
+		if err := filterExpression.Validate(filterTypes); err != nil {
 			return nil, err
 		}
 
@@ -87,12 +152,13 @@ func (s *subscription) addEventSink(
 		// sink to fallback to evaluation via the expression package.
 		// The err checking code here looks a little weird, but it is
 		// what is intended.
-		if err = expr.ValidateKernelFilter(); err == nil {
+		var err error
+		if err = filterExpression.ValidateKernelFilter(); err == nil {
 			err = s.sensor.Monitor.SetFilter(eventID,
-				expr.KernelFilterString())
+				filterExpression.KernelFilterString())
 		}
 		if err != nil {
-			es.filter = expr
+			es.filter = filterExpression
 		}
 	}
 
@@ -103,16 +169,125 @@ func (s *subscription) addEventSink(
 	return es, nil
 }
 
-func (s *subscription) removeEventSink(es *eventSink) {
+func (s *Subscription) removeEventSink(es *eventSink) {
 	delete(s.eventSinks, es.eventID)
 }
 
-func (s *subscription) logStatus(code code.Code, message string) {
+func (s *Subscription) logStatus(code code.Code, message string) {
 	s.status = append(s.status,
 		&google_rpc.Status{
 			Code:    int32(code),
 			Message: message,
 		})
+}
+
+func (s *Subscription) createEventGroup() error {
+	if s.eventGroupID == 0 {
+		if groupID, err := s.sensor.Monitor.RegisterEventGroup(""); err == nil {
+			s.eventGroupID = groupID
+		} else {
+			s.logStatus(
+				code.Code_UNKNOWN,
+				fmt.Sprintf("Could not create subscription event group: %v",
+					err))
+			return err
+		}
+	}
+	return nil
+}
+
+var perfTypeMapping = map[int32]expression.ValueType{
+	perf.TraceEventFieldTypeString: expression.ValueTypeString,
+
+	perf.TraceEventFieldTypeSignedInt8:  expression.ValueTypeSignedInt8,
+	perf.TraceEventFieldTypeSignedInt16: expression.ValueTypeSignedInt16,
+	perf.TraceEventFieldTypeSignedInt32: expression.ValueTypeSignedInt32,
+	perf.TraceEventFieldTypeSignedInt64: expression.ValueTypeSignedInt64,
+
+	perf.TraceEventFieldTypeUnsignedInt8:  expression.ValueTypeUnsignedInt8,
+	perf.TraceEventFieldTypeUnsignedInt16: expression.ValueTypeUnsignedInt16,
+	perf.TraceEventFieldTypeUnsignedInt32: expression.ValueTypeUnsignedInt32,
+	perf.TraceEventFieldTypeUnsignedInt64: expression.ValueTypeUnsignedInt64,
+}
+
+func (s *Subscription) registerKprobe(
+	address string,
+	onReturn bool,
+	output string,
+	fn perf.TraceEventDecoderFn,
+	filterExpr *expression.Expression,
+	filterTypes expression.FieldTypeMap,
+	options ...perf.RegisterEventOption,
+) (*eventSink, error) {
+	if err := s.createEventGroup(); err != nil {
+		return nil, err
+	}
+	options = append(options, perf.WithEventGroup(s.eventGroupID))
+
+	eventID, err := s.sensor.RegisterKprobe(address, onReturn, output, fn,
+		options...)
+	if err != nil {
+		s.logStatus(code.Code_UNKNOWN,
+			fmt.Sprintf("Could not register kprobe %s: %v",
+				address, err))
+		return nil, err
+	}
+
+	// This is a dynamic kprobe -- determine filterTypes dynamically from
+	// the kernel.
+	if filterExpr != nil && filterTypes == nil {
+		kprobeFields := s.sensor.Monitor.RegisteredEventFields(eventID)
+		filterTypes = make(expression.FieldTypeMap, len(kprobeFields))
+		for k, v := range kprobeFields {
+			filterTypes[k] = perfTypeMapping[v]
+		}
+	}
+
+	es, err := s.addEventSink(eventID, filterExpr, filterTypes)
+	if err != nil {
+		s.logStatus(
+			code.Code_UNKNOWN,
+			fmt.Sprintf("Could not register kprobe %s: %v",
+				address, err))
+		s.sensor.Monitor.UnregisterEvent(eventID)
+		return nil, err
+	}
+
+	return es, nil
+}
+
+func (s *Subscription) registerTracepoint(
+	name string,
+	fn perf.TraceEventDecoderFn,
+	filterExpr *expression.Expression,
+	filterTypes expression.FieldTypeMap,
+	options ...perf.RegisterEventOption,
+) (*eventSink, error) {
+	if err := s.createEventGroup(); err != nil {
+		return nil, err
+	}
+	options = append(options, perf.WithEventGroup(s.eventGroupID))
+
+	eventID, err := s.sensor.Monitor.RegisterTracepoint(name, fn,
+		options...)
+	if err != nil {
+		s.logStatus(code.Code_UNKNOWN,
+			fmt.Sprintf("Could not register tracepoint %s: %v",
+				name, err))
+		return nil, err
+	}
+
+	es, err := s.addEventSink(eventID, filterExpr, filterTypes)
+	if err != nil {
+		s.logStatus(
+			code.Code_UNKNOWN,
+			fmt.Sprintf("Could not register tracepoint %s: %v",
+				name, err))
+		s.sensor.Monitor.UnregisterEvent(eventID)
+		return nil, err
+	}
+
+	return es, nil
 }
 
 //
@@ -136,14 +311,13 @@ func newSafeSubscriptionMap() *safeSubscriptionMap {
 }
 
 func (ssm *safeSubscriptionMap) getMap() subscriptionMap {
-	value := ssm.active.Load()
-	if value == nil {
-		return nil
+	if value := ssm.active.Load(); value != nil {
+		return value.(subscriptionMap)
 	}
-	return value.(subscriptionMap)
+	return nil
 }
 
-func (ssm *safeSubscriptionMap) subscribe(subscr *subscription) {
+func (ssm *safeSubscriptionMap) subscribe(subscr *Subscription) {
 	ssm.Lock()
 	defer ssm.Unlock()
 
@@ -173,19 +347,17 @@ func (ssm *safeSubscriptionMap) subscribe(subscr *subscription) {
 }
 
 func (ssm *safeSubscriptionMap) unsubscribe(
-	subscr *subscription,
+	subscr *Subscription,
 	f func(uint64),
 ) {
 	var (
 		deadEventIDs   []uint64
 		deadEventSinks []*eventSink
 	)
-	subscriptionID := subscr.eventGroupID
 
 	ssm.Lock()
-
-	om := ssm.getMap()
-	if om != nil {
+	if om := ssm.getMap(); om != nil {
+		subscriptionID := subscr.eventGroupID
 		nm := make(subscriptionMap, len(om))
 		for eventID, v := range om {
 			var m map[int32]*eventSink
@@ -208,7 +380,6 @@ func (ssm *safeSubscriptionMap) unsubscribe(
 		}
 		ssm.active.Store(nm)
 	}
-
 	ssm.Unlock()
 
 	for _, es := range deadEventSinks {

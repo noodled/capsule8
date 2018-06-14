@@ -31,15 +31,11 @@ var chargenEventTypes = expression.FieldTypeMap{
 	"characters": expression.ValueTypeString,
 }
 
-type chargenFilter struct {
-	sensor *Sensor
-}
-
-func (c *chargenFilter) decodeChargenEvent(
+func (s *Subscription) decodeChargenEvent(
 	sample *perf.SampleRecord,
 	data perf.TraceEventSampleData,
 ) (interface{}, error) {
-	e := c.sensor.NewEvent()
+	e := s.sensor.NewEvent()
 	e.Event = &api.TelemetryEvent_Chargen{
 		Chargen: &api.ChargenEvent{
 			Index:      data["index"].(uint64),
@@ -58,64 +54,62 @@ func generateCharacters(start, length uint64) string {
 	return string(bytes)
 }
 
-func registerChargenEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.ChargenEventFilter,
+// RegisterChargenEventFilter registers a character generation event filter
+// with a subscription.
+func (s *Subscription) RegisterChargenEventFilter(
+	length uint64,
+	filter *expression.Expression,
 ) {
-	f := chargenFilter{sensor: sensor}
-	eventID, err := sensor.Monitor.RegisterExternalEvent("chargen",
-		f.decodeChargenEvent)
+	if length == 0 || length > 1<<16 {
+		s.logStatus(
+			code.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("Chargen length out of range (%d)", length))
+		return
+	}
+
+	eventID, err := s.sensor.Monitor.RegisterExternalEvent("chargen",
+		s.decodeChargenEvent)
 	if err != nil {
-		subscr.logStatus(
+		s.logStatus(
 			code.Code_UNKNOWN,
 			fmt.Sprintf("Could not register chargen event: %v", err))
 		return
 	}
 
 	done := make(chan struct{})
-	nchargens := 0
-	for _, e := range events {
-		// XXX there should be a maximum bound here too ...
-		if e.Length == 0 || e.Length > 1<<16 {
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("Chargen length out of range (%d)", e.Length))
-			continue
-		}
-		nchargens++
 
-		go func() {
-			index := uint64(0)
-			length := e.Length
-			for {
-				select {
-				case <-done:
-					return
-				default:
-					monoNow := sys.CurrentMonotonicRaw()
-					sampleID := perf.SampleID{
-						Time: uint64(monoNow),
-					}
-					s := generateCharacters(index, length)
-					data := perf.TraceEventSampleData{
-						"index":      index,
-						"characters": s,
-					}
-					index += length
-					sensor.Monitor.EnqueueExternalSample(
-						eventID, sampleID, data)
+	es, err := s.addEventSink(eventID, filter, chargenEventTypes)
+	if err != nil {
+		s.logStatus(
+			code.Code_UNKNOWN,
+			fmt.Sprintf("Invalid filter expression for chargen filter: %v", err))
+		s.sensor.Monitor.UnregisterEvent(eventID)
+		return
+	}
+	es.unregister = func(es *eventSink) {
+		s.sensor.Monitor.UnregisterEvent(es.eventID)
+		close(done)
+	}
+
+	go func() {
+		index := uint64(0)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				monoNow := sys.CurrentMonotonicRaw()
+				sampleID := perf.SampleID{
+					Time: uint64(monoNow),
 				}
+				data := perf.TraceEventSampleData{
+					"index":      index,
+					"characters": generateCharacters(index, length),
+				}
+				index += length
+				s.sensor.Monitor.EnqueueExternalSample(
+					eventID, sampleID, data)
 			}
-		}()
-	}
-	if nchargens == 0 {
-		sensor.Monitor.UnregisterEvent(eventID)
-	} else {
-		es, _ := subscr.addEventSink(eventID, nil, chargenEventTypes)
-		es.unregister = func(es *eventSink) {
-			sensor.Monitor.UnregisterEvent(es.eventID)
-			close(done)
 		}
-	}
+	}()
 }

@@ -84,15 +84,19 @@ func (st *procStressTest) HandleTelemetryEvent(t *testing.T, telemetryEvent *api
 		// Ignore
 
 	case *api.TelemetryEvent_Process:
-		glog.V(2).Infof("%+v", *event.Process)
 		switch event.Process.Type {
 		case api.ProcessEventType_PROCESS_EVENT_TYPE_EXEC:
-			if telemetryEvent.Event.ImageId == st.testContainer.ImageID &&
-				event.Process.ExecFilename != testExecFilename {
+			if telemetryEvent.Event.ImageId != st.testContainer.ImageID {
+				break
+			}
+			if event.Process.ExecFilename == testExecFilename {
+				st.processCount++
+				break
+			}
+			if event.Process.ExecFilename != "./stress.sh" {
 				t.Errorf("Unexpected exec file name %s", event.Process.ExecFilename)
 				return false
 			}
-			st.processCount++
 		default:
 			t.Errorf("Unexpected process event %s", event.Process.Type)
 			return false

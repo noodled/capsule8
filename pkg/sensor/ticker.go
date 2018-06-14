@@ -31,15 +31,11 @@ var tickerEventTypes = expression.FieldTypeMap{
 	"nanoseconds": expression.ValueTypeSignedInt64,
 }
 
-type tickerFilter struct {
-	sensor *Sensor
-}
-
-func (t *tickerFilter) decodeTickerEvent(
+func (s *Subscription) decodeTickerEvent(
 	sample *perf.SampleRecord,
 	data perf.TraceEventSampleData,
 ) (interface{}, error) {
-	e := t.sensor.NewEvent()
+	e := s.sensor.NewEvent()
 	e.Event = &api.TelemetryEvent_Ticker{
 		Ticker: &api.TickerEvent{
 			Seconds:     data["seconds"].(int64),
@@ -49,63 +45,63 @@ func (t *tickerFilter) decodeTickerEvent(
 	return e, nil
 }
 
-func registerTimerEvents(
-	sensor *Sensor,
-	subscr *subscription,
-	events []*api.TickerEventFilter,
+// RegisterTickerEventFilter registers a ticker event filter with a
+// subscription.
+func (s *Subscription) RegisterTickerEventFilter(
+	interval int64,
+	filter *expression.Expression,
 ) {
+	if interval <= 0 {
+		s.logStatus(
+			code.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("Invalid ticker interval: %d", interval))
+		return
+	}
 
-	f := tickerFilter{sensor: sensor}
-	eventID, err := sensor.Monitor.RegisterExternalEvent("ticker",
-		f.decodeTickerEvent)
+	eventID, err := s.sensor.Monitor.RegisterExternalEvent("ticker",
+		s.decodeTickerEvent)
 	if err != nil {
-		subscr.logStatus(
+		s.logStatus(
 			code.Code_UNKNOWN,
 			fmt.Sprintf("Could not register ticker event: %v", err))
 		return
 	}
 
 	done := make(chan struct{})
-	ntickers := 0
-	for _, e := range events {
-		if e.Interval <= 0 {
-			subscr.logStatus(
-				code.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("Invalid ticker interval: %d", e.Interval))
-			continue
-		}
-		ticker := time.NewTicker(time.Duration(e.Interval))
-		ntickers++
 
-		go func() {
-			for {
-				select {
-				case <-done:
-					ticker.Stop()
-					return
-				case <-ticker.C:
-					monoNow := sys.CurrentMonotonicRaw()
-					sampleID := perf.SampleID{
-						Time: uint64(monoNow),
-					}
-					now := time.Now()
-					data := perf.TraceEventSampleData{
-						"seconds":     int64(now.Unix()),
-						"nanoseconds": int64(now.UnixNano()),
-					}
-					sensor.Monitor.EnqueueExternalSample(
-						eventID, sampleID, data)
+	es, err := s.addEventSink(eventID, filter, tickerEventTypes)
+	if err != nil {
+		s.logStatus(
+			code.Code_UNKNOWN,
+			fmt.Sprintf("Invalid filter expression for ticker filter: %v", err))
+		s.sensor.Monitor.UnregisterEvent(eventID)
+		return
+	}
+	es.unregister = func(es *eventSink) {
+		s.sensor.Monitor.UnregisterEvent(es.eventID)
+		close(done)
+	}
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(interval))
+		for {
+			select {
+			case <-done:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				monoNow := sys.CurrentMonotonicRaw()
+				sampleID := perf.SampleID{
+					Time: uint64(monoNow),
 				}
+				now := time.Now()
+				data := perf.TraceEventSampleData{
+					"seconds":     int64(now.Unix()),
+					"nanoseconds": int64(now.UnixNano()),
+				}
+				s.sensor.Monitor.EnqueueExternalSample(
+					eventID, sampleID, data)
 			}
-		}()
-	}
-	if ntickers == 0 {
-		sensor.Monitor.UnregisterEvent(eventID)
-	} else {
-		es, _ := subscr.addEventSink(eventID, nil, tickerEventTypes)
-		es.unregister = func(es *eventSink) {
-			sensor.Monitor.UnregisterEvent(es.eventID)
-			close(done)
 		}
-	}
+	}()
 }
