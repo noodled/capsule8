@@ -15,19 +15,15 @@
 package sensor
 
 import (
-	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	api "github.com/capsule8/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/config"
 	"github.com/capsule8/capsule8/pkg/expression"
@@ -347,102 +343,6 @@ func (s *Sensor) unmountPerfEventCgroupFS() {
 	}
 }
 
-// NewEvent creates a new API Event instance with common sensor-specific fields
-// correctly populated.
-func (s *Sensor) NewEvent() *api.TelemetryEvent {
-	monotime := sys.CurrentMonotonicRaw() - s.bootMonotimeNanos
-
-	// The first sequence number is intentionally 1 to disambiguate
-	// from no sequence number being included in the protobuf message.
-	sequenceNumber := atomic.AddUint64(&s.sequenceNumber, 1)
-
-	var b []byte
-	buf := bytes.NewBuffer(b)
-	binary.Write(buf, binary.LittleEndian, s.ID)
-	binary.Write(buf, binary.LittleEndian, sequenceNumber)
-	binary.Write(buf, binary.LittleEndian, monotime)
-
-	h := sha256.Sum256(buf.Bytes())
-	eventID := hex.EncodeToString(h[:])
-
-	atomic.AddUint64(&s.Metrics.Events, 1)
-
-	return &api.TelemetryEvent{
-		Id:                   eventID,
-		SensorId:             s.ID,
-		SensorMonotimeNanos:  monotime,
-		SensorSequenceNumber: sequenceNumber,
-	}
-}
-
-// NewEventFromContainer creates a new API Event instance using a specific
-// container ID.
-func (s *Sensor) NewEventFromContainer(containerID string) *api.TelemetryEvent {
-	e := s.NewEvent()
-	e.ContainerId = containerID
-	return e
-}
-
-// NewEventFromSample creates a new API Event instance using perf_event sample
-// information. If the sample comes from the calling process, no event will be
-// created, and the return will be nil.
-func (s *Sensor) NewEventFromSample(
-	sample *perf.SampleRecord,
-	data perf.TraceEventSampleData,
-) *api.TelemetryEvent {
-	var (
-		ok           bool
-		leader, task *Task
-	)
-
-	// Avoid the lookup if we've been given the information.
-	// This happens most commonly with process events.
-	if task, ok = data["__task__"].(*Task); ok {
-		leader = task.Leader()
-	} else if pid, _ := data["common_pid"].(int32); pid != 0 {
-		// When both the sensor and the process generating the sample
-		// are in containers, the sample.Pid and sample.Tid fields will
-		// be zero. Use "common_pid" from the trace event data instead.
-		task, leader = s.ProcessCache.LookupTaskAndLeader(int(pid))
-	}
-	if leader != nil && leader.IsSensor() {
-		return nil
-	}
-
-	e := s.NewEvent()
-	e.SensorMonotimeNanos = int64(sample.Time) - s.bootMonotimeNanos
-	e.Cpu = int32(sample.CPU)
-
-	if task != nil {
-		e.ProcessPid = int32(task.PID)
-		e.ProcessId = task.ProcessID
-		e.ProcessTgid = int32(task.TGID)
-
-		if c := task.Creds; c != nil {
-			e.Credentials = &api.Credentials{
-				Uid:   c.UID,
-				Gid:   c.GID,
-				Euid:  c.EUID,
-				Egid:  c.EGID,
-				Suid:  c.SUID,
-				Sgid:  c.SGID,
-				Fsuid: c.FSUID,
-				Fsgid: c.FSGID,
-			}
-		}
-
-		// if task != nil, leader is also guaranteed != nil
-		if i := s.ProcessCache.LookupTaskContainerInfo(leader); i != nil {
-			e.ContainerId = i.ID
-			e.ContainerName = i.Name
-			e.ImageId = i.ImageID
-			e.ImageName = i.ImageName
-		}
-	}
-
-	return e
-}
-
 func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 	var (
 		cgroupList []string
@@ -618,7 +518,7 @@ func (s *Sensor) RegisterKprobe(
 
 // NewSubscription creates a new telemetry subscription
 func (s *Sensor) NewSubscription() *Subscription {
-	atomic.AddInt32(&s.Metrics.Subscriptions, 1)
+	subscriptionID := atomic.AddUint64(&s.Metrics.Subscriptions, 1)
 
 	// Use an empty dispatch function until Subscription.Run is called with
 	// the real dispatch function to use. This is to avoid an extra branch
@@ -627,8 +527,9 @@ func (s *Sensor) NewSubscription() *Subscription {
 	// when it's so easy to handle otherwise during the subscription
 	// window.
 	return &Subscription{
-		sensor:     s,
-		dispatchFn: func(e *api.TelemetryEvent) {},
+		sensor:         s,
+		subscriptionID: subscriptionID,
+		dispatchFn:     func(e TelemetryEvent) {},
 	}
 }
 
@@ -680,7 +581,7 @@ func (s *Sensor) dispatchQueuedSamples(samples []perf.EventMonitorSample) {
 			continue
 		}
 
-		event, ok := esm.DecodedSample.(*api.TelemetryEvent)
+		event, ok := esm.DecodedSample.(TelemetryEvent)
 		if !ok || event == nil {
 			continue
 		}
@@ -704,19 +605,9 @@ func (s *Sensor) dispatchQueuedSamples(samples []perf.EventMonitorSample) {
 				}
 			}
 			s := es.subscription
-			if s.containerFilter != nil &&
-				!s.containerFilter.match(event) {
+			containerInfo := event.CommonTelemetryEventData().Container
+			if !s.containerFilter.Match(containerInfo) {
 				continue
-			}
-			if cef, ok := event.Event.(*api.TelemetryEvent_Container); ok {
-				if es.containerView != api.ContainerEventView_FULL {
-					if len(eventSinks) > 1 {
-						event = copyTelemetryEvent(event)
-						cef = event.Event.(*api.TelemetryEvent_Container)
-					}
-					cef.Container.DockerConfigJson = ""
-					cef.Container.OciConfigJson = ""
-				}
 			}
 			s.dispatchFn(event)
 		}
@@ -742,34 +633,4 @@ func (s *Sensor) sampleDispatchLoop() {
 
 	glog.V(2).Info("Sample dispatch loop stopped")
 	s.dispatchWaitGroup.Done()
-}
-
-func copyTelemetryEvent(oldEvent *api.TelemetryEvent) *api.TelemetryEvent {
-	newEvent := *oldEvent
-	switch event := newEvent.Event.(type) {
-	case *api.TelemetryEvent_Chargen:
-		newChargen := *event.Chargen
-		newEvent.Event.(*api.TelemetryEvent_Chargen).Chargen = &newChargen
-	case *api.TelemetryEvent_Container:
-		newContainer := *event.Container
-		newEvent.Event.(*api.TelemetryEvent_Container).Container = &newContainer
-	case *api.TelemetryEvent_File:
-		newFile := *event.File
-		newEvent.Event.(*api.TelemetryEvent_File).File = &newFile
-	case *api.TelemetryEvent_KernelCall:
-		newKernelCall := *event.KernelCall
-		newEvent.Event.(*api.TelemetryEvent_KernelCall).KernelCall = &newKernelCall
-	case *api.TelemetryEvent_Network:
-		newNetwork := *event.Network
-		newEvent.Event.(*api.TelemetryEvent_Network).Network = &newNetwork
-	case *api.TelemetryEvent_Process:
-		newProcess := *event.Process
-		newEvent.Event.(*api.TelemetryEvent_Process).Process = &newProcess
-	case *api.TelemetryEvent_Syscall:
-		newSyscall := *event.Syscall
-		newEvent.Event.(*api.TelemetryEvent_Syscall).Syscall = &newSyscall
-	default:
-		glog.Fatal("Unable to copy event: %+v", oldEvent)
-	}
-	return &newEvent
 }

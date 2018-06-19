@@ -20,5 +20,5 @@ type MetricsCounters struct {
 	Events uint64
 
 	// Number of subscriptions
-	Subscriptions int32
+	Subscriptions uint64
 }

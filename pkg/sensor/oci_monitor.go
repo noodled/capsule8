@@ -178,8 +178,8 @@ func (om *ociMonitor) processConfigJSON(
 	paths := strings.Split(configFilename, "/")
 	containerID := paths[len(paths)-2]
 
-	containerInfo := om.sensor.ContainerCache.LookupContainer(
-		containerID, false)
+	containerCache := om.sensor.ContainerCache
+	containerInfo := containerCache.LookupContainer(containerID, false)
 	if containerInfo != nil && containerInfo.OCIConfig == JSONString {
 		// No change; do nothing more
 		return nil
@@ -195,15 +195,14 @@ func (om *ociMonitor) processConfigJSON(
 	data := make(map[string]interface{})
 	// Update the cache with the newly loaded information
 	if containerInfo == nil {
-		containerInfo = om.sensor.ContainerCache.LookupContainer(
-			containerID, true)
+		containerInfo = containerCache.LookupContainer(containerID, true)
 	}
 	data["OCIConfig"] = JSONString
 
 	if containerInfo.State == ContainerStateUnknown {
 		data["State"] = ContainerStateCreated
 	}
-	containerInfo.Update(ContainerRuntimeUnknown, sampleID, data)
+	containerInfo.Update(containerCache, ContainerRuntimeUnknown, sampleID, data)
 
 	return nil
 }

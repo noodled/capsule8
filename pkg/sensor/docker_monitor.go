@@ -179,8 +179,8 @@ func (dm *dockerMonitor) processDockerConfig(
 	paths := strings.Split(configFilename, "/")
 	containerID := paths[len(paths)-2]
 
-	containerInfo := dm.sensor.ContainerCache.LookupContainer(
-		containerID, false)
+	containerCache := dm.sensor.ContainerCache
+	containerInfo := containerCache.LookupContainer(containerID, false)
 	if containerInfo != nil && containerInfo.JSONConfig == JSONString {
 		// No change; do nothing more
 		return nil
@@ -197,8 +197,7 @@ func (dm *dockerMonitor) processDockerConfig(
 	// Update the cache with the newly loaded information
 	if config.ID != containerID || containerInfo == nil {
 		containerID = config.ID
-		containerInfo = dm.sensor.ContainerCache.LookupContainer(
-			containerID, true)
+		containerInfo = containerCache.LookupContainer(containerID, true)
 	}
 	data["JSONConfig"] = JSONString
 	data["Name"] = config.Name
@@ -223,7 +222,7 @@ func (dm *dockerMonitor) processDockerConfig(
 	}
 
 	data["State"] = newState
-	containerInfo.Update(ContainerRuntimeDocker, sampleID, data)
+	containerInfo.Update(containerCache, ContainerRuntimeDocker, sampleID, data)
 
 	return nil
 }

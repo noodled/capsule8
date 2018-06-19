@@ -21,51 +21,37 @@ import (
 	"sync"
 	"sync/atomic"
 
-	api "github.com/capsule8/capsule8/api/v0"
-
 	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/golang/glog"
-
-	"google.golang.org/genproto/googleapis/rpc/code"
-	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 )
 
 // EventSinkDispatchFn is a function that is called to deliver a telemetry
 // event for a subscription.
-type EventSinkDispatchFn func(event *api.TelemetryEvent)
+type EventSinkDispatchFn func(event TelemetryEvent)
+
 type eventSinkUnregisterFn func(es *eventSink)
 
 type eventSink struct {
-	subscription  *Subscription
-	eventID       uint64
-	unregister    eventSinkUnregisterFn
-	filter        *expression.Expression
-	filterTypes   expression.FieldTypeMap
-	containerView api.ContainerEventView
+	subscription *Subscription
+	eventID      uint64
+	unregister   eventSinkUnregisterFn
+	filter       *expression.Expression
+	filterTypes  expression.FieldTypeMap
 }
 
 // Subscription contains all of the information about a client subscription
 // for telemetry events to be delivered by the sensor.
 type Subscription struct {
 	sensor          *Sensor
+	subscriptionID  uint64
 	eventGroupID    int32
 	counterGroupIDs []int32
 	containerFilter *ContainerFilter
 	eventSinks      map[uint64]*eventSink
-	status          []*google_rpc.Status
+	status          []string
 	dispatchFn      EventSinkDispatchFn
-}
-
-func (s *Subscription) id() int32 {
-	if s.eventGroupID != 0 {
-		return s.eventGroupID
-	}
-	if len(s.counterGroupIDs) > 0 {
-		return s.counterGroupIDs[0]
-	}
-	return 0
 }
 
 // Run enables and runs a telemetry event subscription. Canceling the specified
@@ -74,16 +60,14 @@ func (s *Subscription) id() int32 {
 func (s *Subscription) Run(
 	ctx context.Context,
 	dispatchFn EventSinkDispatchFn,
-) ([]*google_rpc.Status, error) {
+) ([]string, error) {
 	status := s.status
 	s.status = nil
-	if len(status) > 0 {
+	if status != nil {
 		for _, st := range status {
-			glog.V(1).Infof("Subscription %d: [%s] %s",
-				s.id(), code.Code_name[st.Code], st.Message)
+			glog.V(1).Infof("Subscription %d: %s",
+				s.subscriptionID, st)
 		}
-	} else {
-		status = []*google_rpc.Status{{Code: int32(code.Code_OK)}}
 	}
 
 	if len(s.eventSinks) == 0 {
@@ -91,11 +75,12 @@ func (s *Subscription) Run(
 	}
 
 	s.sensor.eventMap.subscribe(s)
-	glog.V(2).Infof("Subscription %d registered", s.id())
+	glog.V(2).Infof("Subscription %d registered", s.subscriptionID)
 
 	go func() {
 		<-ctx.Done()
-		glog.V(2).Infof("Subscription %d control channel closed", s.id())
+		glog.V(2).Infof("Subscription %d control channel closed",
+			s.subscriptionID)
 
 		s.Close()
 	}()
@@ -173,12 +158,8 @@ func (s *Subscription) removeEventSink(es *eventSink) {
 	delete(s.eventSinks, es.eventID)
 }
 
-func (s *Subscription) logStatus(code code.Code, message string) {
-	s.status = append(s.status,
-		&google_rpc.Status{
-			Code:    int32(code),
-			Message: message,
-		})
+func (s *Subscription) logStatus(st string) {
+	s.status = append(s.status, st)
 }
 
 func (s *Subscription) createEventGroup() error {
@@ -187,7 +168,6 @@ func (s *Subscription) createEventGroup() error {
 			s.eventGroupID = groupID
 		} else {
 			s.logStatus(
-				code.Code_UNKNOWN,
 				fmt.Sprintf("Could not create subscription event group: %v",
 					err))
 			return err
@@ -227,7 +207,7 @@ func (s *Subscription) registerKprobe(
 	eventID, err := s.sensor.RegisterKprobe(address, onReturn, output, fn,
 		options...)
 	if err != nil {
-		s.logStatus(code.Code_UNKNOWN,
+		s.logStatus(
 			fmt.Sprintf("Could not register kprobe %s: %v",
 				address, err))
 		return nil, err
@@ -246,7 +226,6 @@ func (s *Subscription) registerKprobe(
 	es, err := s.addEventSink(eventID, filterExpr, filterTypes)
 	if err != nil {
 		s.logStatus(
-			code.Code_UNKNOWN,
 			fmt.Sprintf("Could not register kprobe %s: %v",
 				address, err))
 		s.sensor.Monitor.UnregisterEvent(eventID)
@@ -271,7 +250,7 @@ func (s *Subscription) registerTracepoint(
 	eventID, err := s.sensor.Monitor.RegisterTracepoint(name, fn,
 		options...)
 	if err != nil {
-		s.logStatus(code.Code_UNKNOWN,
+		s.logStatus(
 			fmt.Sprintf("Could not register tracepoint %s: %v",
 				name, err))
 		return nil, err
@@ -280,7 +259,6 @@ func (s *Subscription) registerTracepoint(
 	es, err := s.addEventSink(eventID, filterExpr, filterTypes)
 	if err != nil {
 		s.logStatus(
-			code.Code_UNKNOWN,
 			fmt.Sprintf("Could not register tracepoint %s: %v",
 				name, err))
 		s.sensor.Monitor.UnregisterEvent(eventID)

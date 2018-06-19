@@ -168,7 +168,7 @@ func onContainerExited(cID string) {
 	metricsStart = startMetrics[cID]
 
 	metricsDelta.Events = metricsEnd.Events - metricsStart.Events
-	metricsDelta.Subscriptions = int32(max(int64(metricsEnd.Subscriptions),
+	metricsDelta.Subscriptions = uint64(max(int64(metricsEnd.Subscriptions),
 		int64(metricsStart.Subscriptions)))
 
 	var rusage, delta unix.Rusage
