@@ -1,0 +1,14 @@
+name: valid
+ID: 31337
+format:
+	field:unsigned short common_type;   offset:0;   size:2;	signed:0;
+	field:unsigned char common_flags;   offset:2;   size:1;	signed:0;
+	field:unsigned char common_preempt_count;   offset:3;	size:1;	signed:0;
+	field:int common_pid;	offset:4;   size:4; signed:1;
+
+	field:__data_loc char[] name;	offset:8;	size:4;	signed:1;
+	field:__data_loc long[] longs;	offset:12;	size:4;	signed:1;
+	field:gid_t signed_skip[NGROUP];	offset:16;	size:64;	signed:1;
+	field:gid_t unsigned_skip[NGROUP];	offset:80;	size:64;	signed:0;
+
+print fmt: "this data is not used"

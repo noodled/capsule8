@@ -19,7 +19,7 @@ import (
 )
 
 func TestKernelTextSymbolNames(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	expectedSymbols := map[string]string{

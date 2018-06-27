@@ -35,6 +35,8 @@ import (
 	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
+	"github.com/capsule8/capsule8/pkg/sys/proc"
+	"github.com/capsule8/capsule8/pkg/sys/proc/procfs"
 
 	"github.com/golang/glog"
 
@@ -43,6 +45,41 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/code"
 	google_rpc "google.golang.org/genproto/googleapis/rpc/status"
 )
+
+type newSensorOptions struct {
+	perfEventDir string
+	tracingDir   string
+	procFS       proc.FileSystem
+}
+
+// NewSensorOption is used to implement optional arguments for NewSensor.
+// It must be exported, but it is not typically used directly.
+type NewSensorOption func(*newSensorOptions)
+
+// WithProcFileSystem is used to set the proc.FileSystem to use. The system
+// default will be used if one is not specified.
+func WithProcFileSystem(procFS proc.FileSystem) NewSensorOption {
+	return func(o *newSensorOptions) {
+		o.procFS = procFS
+	}
+}
+
+// WithPerfEventDir is used to set an optional directory to use for monitoring
+// groups. This should only be necessary if the perf_event cgroup is not
+// mounted in the usual location.
+func WithPerfEventDir(perfEventDir string) NewSensorOption {
+	return func(o *newSensorOptions) {
+		o.perfEventDir = perfEventDir
+	}
+}
+
+// WithTracingDir is used to set an alternate mountpoint to use for managing
+// tracepoints, kprobes, and uprobes.
+func WithTracingDir(tracingDir string) NewSensorOption {
+	return func(o *newSensorOptions) {
+		o.tracingDir = tracingDir
+	}
+}
 
 // Number of random bytes to generate for Sensor Id
 const sensorIDLengthBytes = 32
@@ -65,12 +102,17 @@ type Sensor struct {
 	Metrics MetricsCounters
 
 	// If temporary fs mounts are made at startup, they're stored here.
-	perfEventMountPoint string
-	traceFSMountPoint   string
+	perfEventDir        string
+	tracingDir          string
+	perfEventDirMounted bool
+	tracingDirMounted   bool
 
 	// A sensor-global event monitor that is used for events to aid in
 	// caching process information
 	Monitor *perf.EventMonitor
+
+	// A reference to the host proc filesystem in use.
+	ProcFS proc.FileSystem
 
 	// A lookup table of available kernel symbols. The key is the symbol
 	// name as would be used with RegisterKprobe. The value is the actual
@@ -107,7 +149,29 @@ type queuedSamples struct {
 }
 
 // NewSensor creates a new Sensor instance.
-func NewSensor() (*Sensor, error) {
+func NewSensor(options ...NewSensorOption) (*Sensor, error) {
+	opts := newSensorOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
+
+	if opts.procFS == nil {
+		fs, err := procfs.NewFileSystem("")
+		if err != nil {
+			return nil, err
+		}
+		opts.procFS = fs.HostFileSystem()
+		if opts.procFS == nil {
+			return nil, errors.New("Cannot resolve host procfs")
+		}
+	}
+	if len(opts.perfEventDir) == 0 {
+		opts.perfEventDir = opts.procFS.PerfEventDir()
+	}
+	if len(opts.tracingDir) == 0 {
+		opts.tracingDir = opts.procFS.TracingDir()
+	}
+
 	randomBytes := make([]byte, sensorIDLengthBytes)
 	rand.Read(randomBytes)
 	sensorID := hex.EncodeToString(randomBytes)
@@ -115,6 +179,9 @@ func NewSensor() (*Sensor, error) {
 	s := &Sensor{
 		ID:                sensorID,
 		bootMonotimeNanos: sys.CurrentMonotonicRaw(),
+		perfEventDir:      opts.perfEventDir,
+		tracingDir:        opts.tracingDir,
+		ProcFS:            opts.procFS,
 		eventMap:          newSafeSubscriptionMap(),
 	}
 	s.dispatchCond = sync.Cond{L: &s.dispatchMutex}
@@ -145,7 +212,7 @@ func (s *Sensor) Start() error {
 
 	// If there is no mounted tracefs, the Sensor really can't do anything.
 	// Try mounting our own private mount of it.
-	if !config.Sensor.DontMountTracing && len(sys.TracingDir()) == 0 {
+	if !config.Sensor.DontMountTracing && len(s.tracingDir) == 0 {
 		// If we couldn't find one, try mounting our own private one
 		glog.V(2).Info("Can't find mounted tracefs, mounting one")
 		if err := s.mountTraceFS(); err != nil {
@@ -158,7 +225,7 @@ func (s *Sensor) Start() error {
 	// efficiently separate processes in monitored containers from host
 	// processes. We can run without it, but it's better performance when
 	// available.
-	if !config.Sensor.DontMountPerfEvent && len(sys.PerfEventDir()) == 0 {
+	if !config.Sensor.DontMountPerfEvent && len(s.perfEventDir) == 0 {
 		glog.V(2).Info("Can't find mounted perf_event cgroupfs, mounting one")
 		if err := s.mountPerfEventCgroupFS(); err != nil {
 			glog.V(1).Info(err)
@@ -174,7 +241,7 @@ func (s *Sensor) Start() error {
 		return err
 	}
 
-	s.kallsyms, err = sys.HostProcFS().KernelTextSymbolNames()
+	s.kallsyms, err = s.ProcFS.KernelTextSymbolNames()
 	if err != nil {
 		glog.Warning("Could not load kernel symbols: %v", err)
 	}
@@ -236,11 +303,11 @@ func (s *Sensor) Stop() {
 		glog.V(2).Info("Sensor-global EventMonitor stopped successfully")
 	}
 
-	if len(s.traceFSMountPoint) > 0 {
+	if s.tracingDirMounted {
 		s.unmountTraceFS()
 	}
 
-	if len(s.perfEventMountPoint) > 0 {
+	if s.perfEventDirMounted {
 		s.unmountPerfEventCgroupFS()
 	}
 }
@@ -249,18 +316,19 @@ func (s *Sensor) mountTraceFS() error {
 	dir := filepath.Join(config.Global.RunDir, "tracing")
 	err := sys.MountTempFS("tracefs", dir, "tracefs", 0, "")
 	if err == nil {
-		s.traceFSMountPoint = dir
+		s.tracingDir = dir
+		s.tracingDirMounted = true
 	}
 	return err
 }
 
 func (s *Sensor) unmountTraceFS() {
-	err := sys.UnmountTempFS(s.traceFSMountPoint, "tracefs")
+	err := sys.UnmountTempFS(s.tracingDir, "tracefs")
 	if err == nil {
-		s.traceFSMountPoint = ""
+		s.tracingDir = ""
+		s.tracingDirMounted = false
 	} else {
-		glog.V(2).Infof("Could not unmount %s: %s",
-			s.traceFSMountPoint, err)
+		glog.V(2).Infof("Could not unmount %s: %s", s.tracingDir, err)
 	}
 }
 
@@ -268,18 +336,19 @@ func (s *Sensor) mountPerfEventCgroupFS() error {
 	dir := filepath.Join(config.Global.RunDir, "perf_event")
 	err := sys.MountTempFS("cgroup", dir, "cgroup", 0, "perf_event")
 	if err == nil {
-		s.perfEventMountPoint = dir
+		s.perfEventDir = dir
+		s.perfEventDirMounted = true
 	}
 	return err
 }
 
 func (s *Sensor) unmountPerfEventCgroupFS() {
-	err := sys.UnmountTempFS(s.perfEventMountPoint, "cgroup")
+	err := sys.UnmountTempFS(s.perfEventDir, "cgroup")
 	if err == nil {
-		s.perfEventMountPoint = ""
+		s.perfEventDir = ""
+		s.perfEventDirMounted = false
 	} else {
-		glog.V(2).Infof("Could not unmount %s: %s",
-			s.perfEventMountPoint, err)
+		glog.V(2).Infof("Could not unmount %s: %s", s.perfEventDir, err)
 	}
 }
 
@@ -401,8 +470,7 @@ func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 
 	// Try a system-wide perf event monitor if requested or as
 	// a fallback if no cgroups were requested
-	if system || len(sys.PerfEventDir()) == 0 || len(cgroupList) == 0 {
-		glog.V(1).Info("Creating new system-wide event monitor")
+	if system || len(s.perfEventDir) == 0 || len(cgroupList) == 0 {
 		pidList = append(pidList, -1)
 	}
 
@@ -411,10 +479,12 @@ func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
 
 func (s *Sensor) createEventMonitor() error {
 	eventMonitorOptions := []perf.EventMonitorOption{}
+	eventMonitorOptions = append(eventMonitorOptions,
+		perf.WithProcFileSystem(s.ProcFS))
 
-	if len(s.traceFSMountPoint) > 0 {
+	if len(s.tracingDir) > 0 {
 		eventMonitorOptions = append(eventMonitorOptions,
-			perf.WithTracingDir(s.traceFSMountPoint))
+			perf.WithTracingDir(s.tracingDir))
 	}
 
 	cgroups, pids, err := s.buildMonitorGroups()
@@ -426,27 +496,22 @@ func (s *Sensor) createEventMonitor() error {
 		glog.Fatal("Can't create event monitor with no cgroups or pids")
 	}
 
-	if len(cgroups) > 0 {
-		var perfEventDir string
-		if len(s.perfEventMountPoint) > 0 {
-			perfEventDir = s.perfEventMountPoint
-		} else {
-			perfEventDir = sys.PerfEventDir()
-		}
-		if len(perfEventDir) > 0 {
-			glog.V(1).Infof("Creating new perf event monitor on cgroups %s",
-				strings.Join(cgroups, ","))
-
-			eventMonitorOptions = append(eventMonitorOptions,
-				perf.WithPerfEventDir(perfEventDir),
-				perf.WithCgroups(cgroups))
-		}
-	}
-
 	if len(pids) > 0 {
 		glog.V(1).Info("Creating new system-wide event monitor")
 		eventMonitorOptions = append(eventMonitorOptions,
 			perf.WithPids(pids))
+	}
+
+	var optionsWithoutCgroups []perf.EventMonitorOption
+	copy(optionsWithoutCgroups, eventMonitorOptions)
+
+	if len(cgroups) > 0 && len(s.perfEventDir) > 0 {
+		glog.V(1).Infof("Creating new perf event monitor on cgroups %s",
+			strings.Join(cgroups, ","))
+
+		eventMonitorOptions = append(eventMonitorOptions,
+			perf.WithPerfEventDir(s.perfEventDir),
+			perf.WithCgroups(cgroups))
 	}
 
 	s.Monitor, err = perf.NewEventMonitor(eventMonitorOptions...)
@@ -460,7 +525,7 @@ func (s *Sensor) createEventMonitor() error {
 				strings.Join(cgroups, ","), err)
 
 			glog.V(1).Info("Creating new system-wide event monitor")
-			s.Monitor, err = perf.NewEventMonitor()
+			s.Monitor, err = perf.NewEventMonitor(optionsWithoutCgroups...)
 		}
 		if err != nil {
 			glog.V(1).Infof("Couldn't create event monitor: %s", err)

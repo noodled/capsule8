@@ -15,13 +15,12 @@
 package procfs
 
 import (
-	"fmt"
 	"github.com/capsule8/capsule8/pkg/sys/proc"
 	"testing"
 )
 
 func TestProcessContainerID(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	id, err := fs.ProcessContainerID(405)
@@ -37,7 +36,7 @@ func TestProcessContainerID(t *testing.T) {
 }
 
 func TestProcessCommandLine(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	expectedCommandLine := []string{"/sbin/init", "noprompt"}
@@ -60,7 +59,7 @@ func TestProcessCommandLine(t *testing.T) {
 }
 
 func TestTaskControlGroups(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	expectedControlGroups := []proc.ControlGroup{
@@ -130,7 +129,7 @@ func TestTaskControlGroups(t *testing.T) {
 }
 
 func TestTaskCWD(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	expectedCWD := "/"
@@ -146,7 +145,7 @@ func TestTaskCWD(t *testing.T) {
 }
 
 func TestStartTime(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	expectedStartTime := int64(1134871)
@@ -158,7 +157,7 @@ func TestStartTime(t *testing.T) {
 }
 
 func TestTaskUniqueID(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	startTime, err := fs.TaskStartTime(405, 414)
@@ -170,7 +169,7 @@ func TestTaskUniqueID(t *testing.T) {
 }
 
 func TestWalkTasks(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	knownTasks := map[uint64]bool{
@@ -183,7 +182,6 @@ func TestWalkTasks(t *testing.T) {
 
 	var count int
 	err = fs.WalkTasks(func(tgid, pid int) bool {
-		fmt.Printf("visit tgid %d pid %d\n", tgid, pid)
 		key := (uint64(tgid) << 32) | uint64(pid)
 		knownTasks[key] = true
 		count++
@@ -201,7 +199,7 @@ func TestWalkTasks(t *testing.T) {
 }
 
 func TestReadTaskStatus(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	type status struct {
@@ -229,5 +227,4 @@ func TestReadTaskStatus(t *testing.T) {
 
 	err = fs.ReadTaskStatus(322, 223, &actualStatus)
 	assert(t, err != nil, "Expected non-nil error return")
-
 }

@@ -25,7 +25,6 @@ import (
 	api "github.com/capsule8/capsule8/api/v0"
 
 	"github.com/capsule8/capsule8/pkg/sensor"
-	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/golang/glog"
@@ -85,9 +84,10 @@ func main() {
 	flag.Parse()
 
 	glog.Infof("Starting Capsule8 cache side channel detector")
-	ncpu := sys.HostProcFS().NumCPU()
+	sensor := newSensor()
+	ncpu := sensor.ProcFS.NumCPU()
 	tracker := counterTracker{
-		sensor:   newSensor(),
+		sensor:   sensor,
 		counters: make([]eventCounters, ncpu),
 	}
 
@@ -121,7 +121,7 @@ func main() {
 
 	glog.Info("Monitoring for cache side channels")
 	ctx, cancel := context.WithCancel(context.Background())
-	status, err := tracker.sensor.NewSubscription(ctx, sub, tracker.dispatchEvent)
+	status, err := sensor.NewSubscription(ctx, sub, tracker.dispatchEvent)
 	if !(len(status) == 1 && status[0].Code == int32(code.Code_OK)) {
 		for _, s := range status {
 			glog.Infof("%s: %s", code.Code_name[s.Code], s.Message)
@@ -138,7 +138,7 @@ func main() {
 
 	glog.Info("Shutting down gracefully")
 	cancel()
-	tracker.sensor.Monitor.Close()
+	sensor.Stop()
 }
 
 func (t *counterTracker) dispatchEvent(e *api.TelemetryEvent) {

@@ -30,7 +30,7 @@ func TestNewFileSystem(t *testing.T) {
 }
 
 func TestBootID(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	id := fs.BootID()
@@ -38,7 +38,7 @@ func TestBootID(t *testing.T) {
 }
 
 func TestMaxPID(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	max := fs.MaxPID()
@@ -46,7 +46,7 @@ func TestMaxPID(t *testing.T) {
 }
 
 func TestNumCPU(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	ncpu := fs.NumCPU()
@@ -54,7 +54,7 @@ func TestNumCPU(t *testing.T) {
 }
 
 func TestReadFile(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	expectedBytes := []byte{'1', '3', '1', '0', '7', '2', '\n'}

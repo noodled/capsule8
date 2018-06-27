@@ -46,6 +46,9 @@ type FileSystem struct {
 
 	numCPU     int
 	numCPUOnce sync.Once
+
+	hostProcFS     *FileSystem
+	hostProcFSOnce sync.Once
 }
 
 // NewFileSystem returns a new concrete procfs FileSystem instance attached to
