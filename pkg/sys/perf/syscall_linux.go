@@ -22,58 +22,37 @@ import (
 )
 
 func enable(fd int) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_ENABLE, 1)
-
-	err := error(nil)
-	if errno != 0 {
-		err = errno
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_ENABLE, 1); errno != 0 {
+		return errno
 	}
-
-	return err
+	return nil
 }
 
 func setFilter(fd int, filter string) error {
-	f, err := unix.BytePtrFromString(filter)
-	if err != nil {
+	if f, err := unix.BytePtrFromString(filter); err != nil {
 		return err
+	} else if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_SET_FILTER, uintptr(unsafe.Pointer(f))); errno != 0 {
+		return errno
 	}
-
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd),
-		PERF_EVENT_IOC_SET_FILTER, uintptr(unsafe.Pointer(f)))
-
-	err = error(nil)
-	if errno != 0 {
-		err = errno
-	}
-
-	return err
+	return nil
 }
 
 func disable(fd int) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_DISABLE, 1)
-
-	err := error(nil)
-	if errno != 0 {
-		err = errno
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), PERF_EVENT_IOC_DISABLE, 1); errno != 0 {
+		return errno
 	}
-
-	return err
+	return nil
 }
 
 func open(attr *EventAttr, pid int, cpu int, groupFd int, flags uintptr) (int, error) {
 	buf := new(bytes.Buffer)
-
 	attr.write(buf)
-
 	b := buf.Bytes()
 
 	r1, _, errno := unix.Syscall6(unix.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&b[0])),
 		uintptr(pid), uintptr(cpu), uintptr(groupFd), uintptr(flags), uintptr(0))
-
-	err := error(nil)
 	if errno != 0 {
-		err = errno
+		return -1, errno
 	}
-
-	return int(r1), err
+	return int(r1), nil
 }
