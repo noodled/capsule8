@@ -12,7 +12,6 @@ IMPROVEMENTS:
 
   * Refactor to use internal AST rather than protobuf AST ([#218](https://github.com/capsule8/capsule8/pull/218))
   * Update kernel check script with colors and config ([#202](https://github.com/capsule8/capsule8/pull/202))
-  * Replace dino with brandon as code owner ([#216](https://github.com/capsule8/capsule8/pull/216))
   * Add an example of a negative filter ([#209](https://github.com/capsule8/capsule8/pull/209))
 
 BUG FIXES:
