@@ -372,6 +372,7 @@ func (t *Task) Update(data map[string]interface{}, timestamp uint64) bool {
 
 type taskCache interface {
 	LookupTask(int) *Task
+	NewTaskWithPid(int) *Task
 }
 
 type arrayTaskCache struct {
@@ -384,31 +385,27 @@ func newArrayTaskCache(size uint) *arrayTaskCache {
 	}
 }
 
+func (c *arrayTaskCache) NewTaskWithPid(pid int) *Task {
+	old := c.entries[pid-1]
+	t := newTask(pid)
+	if atomic.CompareAndSwapPointer(
+		(*unsafe.Pointer)(unsafe.Pointer(&c.entries[pid-1])),
+		unsafe.Pointer(old),
+		unsafe.Pointer(t)) {
+		return t
+	}
+	return c.entries[pid-1]
+}
+
 func (c *arrayTaskCache) LookupTask(pid int) *Task {
 	if pid <= 0 || pid > len(c.entries) {
 		glog.Fatalf("Invalid pid for lookup: %d", pid)
 	}
 
-	var t *Task
-	for {
-		var old *Task
-
-		t = c.entries[pid-1]
-		if t != nil {
-			if t.ExitTime == 0 ||
-				sys.CurrentMonotonicRaw()-t.ExitTime <
-					taskReuseThreshold {
-				break
-			}
-			old = t
-		}
-		t = newTask(pid)
-		if atomic.CompareAndSwapPointer(
-			(*unsafe.Pointer)(unsafe.Pointer(&c.entries[pid-1])),
-			unsafe.Pointer(old),
-			unsafe.Pointer(t)) {
-			break
-		}
+	t := c.entries[pid-1]
+	if t == nil || (t.ExitTime != 0 &&
+		sys.CurrentMonotonicRaw()-t.ExitTime >= taskReuseThreshold) {
+		t = c.NewTaskWithPid(pid)
 	}
 	glog.V(10).Infof("LookupTask(%d) -> %+v", pid, t)
 	return t
@@ -429,6 +426,12 @@ func newMapTaskCache(size uint) *mapTaskCache {
 	}
 }
 
+func (c *mapTaskCache) NewTaskWithPid(pid int) *Task {
+	t := newTask(pid)
+	c.entries[pid] = t
+	return t
+}
+
 func (c *mapTaskCache) LookupTask(pid int) *Task {
 	if pid <= 0 {
 		glog.Fatalf("Invalid pid for lookup: %d", pid)
@@ -438,8 +441,7 @@ func (c *mapTaskCache) LookupTask(pid int) *Task {
 	t, ok := c.entries[pid]
 	if !ok || (t.ExitTime != 0 &&
 		sys.CurrentMonotonicRaw()-t.ExitTime >= taskReuseThreshold) {
-		t = newTask(pid)
-		c.entries[pid] = t
+		t = c.NewTaskWithPid(pid)
 	}
 	c.Unlock()
 	glog.V(10).Infof("LookupTask(%d) -> %+v", pid, t)
@@ -743,6 +745,11 @@ func (pc *ProcessInfoCache) installCgroupMonitor() error {
 	return nil
 }
 
+// NewTaskWithPid creates and saves a new task information struct for the given PID.
+func (pc *ProcessInfoCache) NewTaskWithPid(pid int) *Task {
+	return pc.cache.NewTaskWithPid(pid)
+}
+
 // LookupTask finds the task information for the given PID.
 func (pc *ProcessInfoCache) LookupTask(pid int) *Task {
 	return pc.cache.LookupTask(pid)
@@ -914,7 +921,7 @@ func (pc *ProcessInfoCache) decodeNewTask(
 
 	pc.maybeDeferAction(func() {
 		parentTask, parentLeader := pc.LookupTaskAndLeader(parentPid)
-		childTask := pc.LookupTask(childPid)
+		childTask := pc.NewTaskWithPid(childPid)
 
 		pc.handleSysClone(parentTask, parentLeader, childTask,
 			cloneFlags, childComm, sample)
