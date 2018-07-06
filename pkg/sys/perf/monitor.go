@@ -34,6 +34,8 @@ import (
 	"unicode"
 
 	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sys/proc"
+	"github.com/capsule8/capsule8/pkg/sys/proc/procfs"
 	"github.com/golang/glog"
 
 	"golang.org/x/sys/unix"
@@ -48,6 +50,7 @@ var (
 )
 
 type eventMonitorOptions struct {
+	procfs             proc.FileSystem
 	flags              uintptr
 	defaultEventAttr   *EventAttr
 	perfEventDir       string
@@ -76,6 +79,14 @@ func WithFlags(flags uintptr) EventMonitorOption {
 func WithDefaultEventAttr(defaultEventAttr *EventAttr) EventMonitorOption {
 	return func(o *eventMonitorOptions) {
 		o.defaultEventAttr = defaultEventAttr
+	}
+}
+
+// WithProcFileSystem is used to set the proc.FileSystem to use. The system
+// default will be used if one is not specified.
+func WithProcFileSystem(procfs proc.FileSystem) EventMonitorOption {
+	return func(o *eventMonitorOptions) {
+		o.procfs = procfs
 	}
 }
 
@@ -613,6 +624,7 @@ type EventMonitor struct {
 	// Immutable, used only when adding new tracepoints/probes
 	defaultAttr EventAttr
 	tracingDir  string
+	procFS      proc.FileSystem
 
 	// Immutable, used only when adding new groups
 	ringBufferNumPages int
@@ -2154,8 +2166,8 @@ func collectReferenceSamples(ncpu int) (int64, int64, []int64, error) {
 	return startTime, firstTime, samples, nil
 }
 
-func calculateTimeOffsets() error {
-	ncpu := sys.HostProcFS().NumCPU()
+func calculateTimeOffsets(procfs proc.FileSystem) error {
+	ncpu := procfs.HostFileSystem().NumCPU()
 	timeOffsets = make([]int64, ncpu)
 	if haveClockID {
 		return nil
@@ -2193,7 +2205,7 @@ func (monitor *EventMonitor) initializeGroupLeaders(
 	}
 
 	var err error
-	ncpu := sys.HostProcFS().NumCPU()
+	ncpu := monitor.procFS.NumCPU()
 	pgls := make([]*perfGroupLeader, ncpu)
 	for cpu := 0; cpu < ncpu; cpu++ {
 		var fd int
@@ -2242,7 +2254,7 @@ func (monitor *EventMonitor) initializeGroupLeaders(
 func (monitor *EventMonitor) newEventGroup(
 	attr *EventAttr,
 ) (*eventMonitorGroup, error) {
-	ncpu := sys.HostProcFS().NumCPU()
+	ncpu := monitor.procFS.NumCPU()
 	nleaders := (len(monitor.cgroups) + len(monitor.pids)) * ncpu
 	leaders := make([]*perfGroupLeader, 0, nleaders)
 
@@ -2419,6 +2431,24 @@ func cleanupStaleProbes(tracingDir string) {
 // method must be called to clean it up gracefully, even if no events are
 // registered or it is never put into the running state.
 func NewEventMonitor(options ...EventMonitorOption) (*EventMonitor, error) {
+	opts := eventMonitorOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
+
+	// Use the specified procfs as-is or find the host procfs to use if
+	// not explicitly specified.
+	if opts.procfs == nil {
+		procfs, err := procfs.NewFileSystem("")
+		if err != nil {
+			return nil, err
+		}
+		opts.procfs = procfs.HostFileSystem()
+		if opts.procfs == nil {
+			return nil, errors.New("Unable to determine host procfs")
+		}
+	}
+
 	eventMonitorOnce.Do(func() {
 		attr := EventAttr{
 			SamplePeriod:    1,
@@ -2435,16 +2465,11 @@ func NewEventMonitor(options ...EventMonitorOption) (*EventMonitor, error) {
 			groupEventAttr.UseClockID = true
 			groupEventAttr.ClockID = unix.CLOCK_MONOTONIC_RAW
 		}
-		calculateTimeOffsets()
+		calculateTimeOffsets(opts.procfs)
 	})
 	if haveClockID && !notedClockID {
 		glog.V(1).Infof("EventMonitor is using ClockID CLOCK_MONOTONIC_RAW")
 		notedClockID = true
-	}
-
-	opts := eventMonitorOptions{}
-	for _, option := range options {
-		option(&opts)
 	}
 
 	var eventAttr EventAttr
@@ -2463,13 +2488,13 @@ func NewEventMonitor(options ...EventMonitorOption) (*EventMonitor, error) {
 
 	// If no tracing dir was specified, scan mounts for one
 	if len(opts.tracingDir) == 0 {
-		opts.tracingDir = sys.TracingDir()
+		opts.tracingDir = opts.procfs.TracingDir()
 	}
 	cleanupStaleProbes(opts.tracingDir)
 
 	// If no perf_event cgroup mountpoint was specified, scan mounts for one
 	if len(opts.perfEventDir) == 0 && len(opts.cgroups) > 0 {
-		opts.perfEventDir = sys.PerfEventDir()
+		opts.perfEventDir = opts.procfs.PerfEventDir()
 
 		// If we didn't find one, we can't monitor specific cgroups
 		if len(opts.perfEventDir) == 0 {
@@ -2505,6 +2530,7 @@ func NewEventMonitor(options ...EventMonitorOption) (*EventMonitor, error) {
 		eventids:           make(map[int]uint64),
 		defaultAttr:        eventAttr,
 		tracingDir:         opts.tracingDir,
+		procFS:             opts.procfs,
 		ringBufferNumPages: opts.ringBufferNumPages,
 		perfEventOpenFlags: opts.flags,
 	}

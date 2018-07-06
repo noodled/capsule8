@@ -17,6 +17,8 @@ package procfs
 import (
 	"bufio"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -93,21 +95,117 @@ func parseMount(line string) (proc.Mount, error) {
 
 // Mounts returns the list of currently mounted filesystems.
 func (fs *FileSystem) Mounts() []proc.Mount {
-	data, err := fs.ReadFile("self/mountinfo")
-	if err != nil {
-		glog.Fatalf("Couldn't read self/mountinfo from proc")
-	}
-
 	var mounts []proc.Mount
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+
+	data := string(fs.ReadFileOrPanic("self/mountinfo"))
+	scanner := bufio.NewScanner(strings.NewReader(data))
 	for scanner.Scan() {
-		line := scanner.Text()
-		m, err := parseMount(line)
-		if err != nil {
+		if m, err := parseMount(scanner.Text()); err != nil {
 			glog.Fatal(err)
+		} else {
+			mounts = append(mounts, m)
 		}
-		mounts = append(mounts, m)
 	}
 
 	return mounts
+}
+
+func (fs *FileSystem) findHostFileSystem() *FileSystem {
+	for _, mi := range fs.Mounts() {
+		if mi.FilesystemType == "proc" && mi.MountPoint != fs.MountPoint {
+			fs, err := NewFileSystem(mi.MountPoint)
+			if err != nil {
+				glog.Warning(err)
+				continue
+			}
+
+			if cgroups, err := fs.TaskControlGroups(1, 1); err != nil {
+				glog.Warningf("Cannot get cgroups for pid 1 on procfs %s: %v",
+					mi.MountPoint, err)
+			} else {
+				for _, cg := range cgroups {
+					if cg.Path == "/" {
+						return fs
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// HostFileSystem returns a FileSystem representing the underlying host's
+// procfs from the perspective of the active proc.FileSystem. If the calling
+// process is running in the host pid namespace, the receiver may return
+// itself. If the calling process is running in a container and no host proc
+// filesystem is mounted in, the return will be nil.
+func (fs *FileSystem) HostFileSystem() proc.FileSystem {
+	fs.hostProcFSOnce.Do(func() {
+		// If this filesystem's init process (pid 1) is in one or more
+		// root cgroup paths, it is the host filesystem.
+		if cgroups, err := fs.TaskControlGroups(1, 1); err != nil {
+			glog.Fatalf("Cannot get cgroups for pid 1: %v", err)
+		} else {
+			for _, cg := range cgroups {
+				if cg.Path == "/" {
+					fs.hostProcFS = fs
+					return
+				}
+			}
+		}
+
+		// Scan this filesystem's view of mounts to look for a host
+		// procfs mount.
+		fs.hostProcFS = fs.findHostFileSystem()
+	})
+
+	return fs.hostProcFS
+}
+
+// PerfEventDir returns the perf_event cgroup mountpoint to use to monitor
+// specific cgroups. Return the empty string if no perf_event cgroup filesystem
+// is mounted.
+func (fs *FileSystem) PerfEventDir() string {
+	for _, mi := range fs.Mounts() {
+		if mi.FilesystemType == "cgroup" {
+			for option := range mi.SuperOptions {
+				if option == "perf_event" {
+					return mi.MountPoint
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// TracingDir returns the tracefs mountpoint to use to control the Linux kernel
+// trace event subsystem. Returns the empty string if no tracefs filesystem is
+// mounted.
+func (fs *FileSystem) TracingDir() string {
+	mounts := fs.Mounts()
+
+	// Look for an existing tracefs
+	for _, m := range mounts {
+		if m.FilesystemType == "tracefs" {
+			glog.V(1).Infof("Found tracefs at %s", m.MountPoint)
+			return m.MountPoint
+		}
+	}
+
+	// If no mounted tracefs has been found, look for it as a
+	// subdirectory of the older debugfs
+	for _, m := range mounts {
+		if m.FilesystemType == "debugfs" {
+			d := filepath.Join(m.MountPoint, "tracing")
+			s, err := os.Stat(filepath.Join(d, "events"))
+			if err == nil && s.IsDir() {
+				glog.V(1).Infof("Found debugfs w/ tracing at %s", d)
+				return d
+			}
+		}
+	}
+
+	return ""
 }

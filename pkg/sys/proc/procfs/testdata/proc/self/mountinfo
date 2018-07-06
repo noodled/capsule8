@@ -1,2 +1,4 @@
 260 89 253:6 /containers/ab63f6eab155cf698a20e7d5e03298dd8baf442ff6e4e20e2dff320f3e2fee3e/mounts /var/lib/docker/containers/ab63f6eab155cf698a20e7d5e03298dd8baf442ff6e4e20e2dff320f3e2fee3e/mounts rw,relatime unbindable - xfs /dev/mapper/rootvg-docker_lv rw,seclabel,attr2,inode64,noquota
 287 26 0:47 / /run/user/42 rw,nosuid,nodev,relatime shared:226 - tmpfs tmpfs rw,seclabel,size=1632548k,mode=700,uid=42,gid=42
+43 19 0:7 / /sys/kernel/debug rw,relatime shared:25 - debugfs debugfs rw
+138 43 0:9 / /sys/kernel/debug/tracing rw,relatime shared:118 - tracefs tracefs rw

@@ -12,34 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build !linux
+
 package sys
 
-import (
-	"golang.org/x/sys/unix"
-)
-
-// KernelVersion returns the version of the currently running kernel in major,
-// minor, patchlevel form.
-func KernelVersion() (int, int, int) {
-	var buf unix.Utsname
-	if err := unix.Uname(&buf); err != nil {
-		return 0, 0, 0
-	}
-
-	var (
-		b    int
-		bits [3]int
-	)
-	for i := 0; i < len(buf.Release) && b < len(bits); i++ {
-		switch buf.Release[i] {
-		case '.':
-			b++
-		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-			bits[b] = bits[b]*10 + int(buf.Release[i]) - '0'
-		default:
-			b = len(bits)
-		}
-	}
-
-	return bits[0], bits[1], bits[2]
+// CurrentMonotonicRaw is a convenience function that returns that current
+// system raw monotonic clock as an integer.
+func CurrentMonotonicRaw() int64 {
+	panic("CurrentMonotonicRaw() unsupported on this platform")
 }

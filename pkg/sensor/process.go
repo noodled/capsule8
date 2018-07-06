@@ -125,11 +125,6 @@ const (
 	doSetFsPwd = "set_fs_pwd"
 )
 
-var (
-	procFS     proc.FileSystem
-	procFSOnce sync.Once
-)
-
 // Cred contains task credential information
 type Cred struct {
 	// UID is the real UID
@@ -305,7 +300,11 @@ func (t *Task) Parent() *Task {
 
 // Update updates a task instance with new data. It returns true if any data
 // was actually changed.
-func (t *Task) Update(data map[string]interface{}, timestamp uint64) bool {
+func (t *Task) Update(
+	changes map[string]interface{},
+	changeTime uint64,
+	procFS proc.FileSystem,
+) bool {
 	dataChanged := false
 	changedContainerInfo := false
 	changedPID := false
@@ -318,7 +317,7 @@ func (t *Task) Update(data map[string]interface{}, timestamp uint64) bool {
 		if !unicode.IsUpper(rune(f.Name[0])) {
 			continue
 		}
-		v, ok := data[f.Name]
+		v, ok := changes[f.Name]
 		if !ok {
 			continue
 		}
@@ -356,7 +355,7 @@ func (t *Task) Update(data map[string]interface{}, timestamp uint64) bool {
 			var err error
 			t.StartTime, err = procFS.TaskStartTime(t.TGID, t.PID)
 			if err != nil {
-				t.StartTime = int64(timestamp)
+				t.StartTime = int64(changeTime)
 			}
 		}
 		if t.StartTime > 0 {
@@ -472,18 +471,11 @@ type scannerDeferredAction func()
 // existing sensor object is required in order for the process info cache to
 // able to install its probes to monitor the system to maintain the cache.
 func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
-	procFSOnce.Do(func() {
-		procFS = sys.HostProcFS()
-		if procFS == nil {
-			glog.Fatal("Couldn't find a host procfs")
-		}
-	})
-
 	cache := &ProcessInfoCache{
 		sensor: sensor,
 	}
 
-	maxPID := procFS.MaxPID()
+	maxPID := sensor.ProcFS.MaxPID()
 	if maxPID > config.Sensor.ProcessInfoCacheSize {
 		cache.cache = newMapTaskCache(maxPID)
 	} else {
@@ -641,6 +633,7 @@ func (pc *ProcessInfoCache) cacheTaskFromProc(tgid, pid int) error {
 		UID  []uint32 `Uid`
 		GID  []uint32 `Gid`
 	}
+	procFS := pc.sensor.ProcFS
 	err := procFS.ReadTaskStatus(tgid, pid, &s)
 	if err != nil {
 		return fmt.Errorf("Couldn't read pid %d status: %s",
@@ -676,7 +669,7 @@ func (pc *ProcessInfoCache) cacheTaskFromProc(tgid, pid int) error {
 }
 
 func (pc *ProcessInfoCache) scanProcFilesystem() error {
-	return procFS.WalkTasks(func(tgid, pid int) bool {
+	return pc.sensor.ProcFS.WalkTasks(func(tgid, pid int) bool {
 		pc.cacheTaskFromProc(tgid, pid)
 		return true
 	})
@@ -890,7 +883,7 @@ func (pc *ProcessInfoCache) handleSysClone(
 	// This must be done before filling in eventData, because otherwise
 	// childTask.ProcessID won't be set yet.
 	childTask.parent = parentTask
-	childTask.Update(changes, sample.Time)
+	childTask.Update(changes, sample.Time, pc.sensor.ProcFS)
 
 	eventData := map[string]interface{}{
 		"__task__":       parentTask,
@@ -955,7 +948,7 @@ func (pc *ProcessInfoCache) decodeDoExit(
 
 	pc.maybeDeferAction(func() {
 		t := pc.LookupTask(pid)
-		t.Update(changes, sample.Time)
+		t.Update(changes, sample.Time, pc.sensor.ProcFS)
 		eventData["__task__"] = t
 		pc.sensor.Monitor.EnqueueExternalSample(
 			pc.ProcessExitEventID,
@@ -991,7 +984,7 @@ func (pc *ProcessInfoCache) decodeCommitCreds(
 
 	pc.maybeDeferAction(func() {
 		t := pc.LookupTask(pid)
-		t.Update(changes, sample.Time)
+		t.Update(changes, sample.Time, pc.sensor.ProcFS)
 	})
 
 	return nil, nil
@@ -1005,13 +998,13 @@ func (pc *ProcessInfoCache) decodeDoSetFsPwd(
 
 	pc.maybeDeferAction(func() {
 		t := pc.LookupTask(pid)
-		cwd, err := procFS.TaskCWD(t.TGID, t.PID)
+		cwd, err := pc.sensor.ProcFS.TaskCWD(t.TGID, t.PID)
 		if err == nil && cwd != t.CWD {
 			glog.V(10).Infof("CWD(%d) = %s", t.PID, cwd)
 			changes := map[string]interface{}{
 				"CWD": cwd,
 			}
-			t.Update(changes, sample.Time)
+			t.Update(changes, sample.Time, pc.sensor.ProcFS)
 
 			eventData := map[string]interface{}{
 				"__task__": t,
@@ -1055,7 +1048,7 @@ func (pc *ProcessInfoCache) decodeExecve(
 
 	pc.maybeDeferAction(func() {
 		t := pc.LookupTask(pid)
-		t.Update(changes, sample.Time)
+		t.Update(changes, sample.Time, pc.sensor.ProcFS)
 		eventData["__task__"] = t
 		pc.sensor.Monitor.EnqueueExternalSample(
 			pc.ProcessExecEventID,
@@ -1179,7 +1172,7 @@ func (pc *ProcessInfoCache) decodeCgroupProcsWrite(
 		changes := map[string]interface{}{
 			"ContainerID": containerID,
 		}
-		task.Update(changes, sample.Time)
+		task.Update(changes, sample.Time, pc.sensor.ProcFS)
 	})
 
 	return nil, nil

@@ -20,8 +20,24 @@ import (
 	"github.com/capsule8/capsule8/pkg/sys/proc"
 )
 
+func TestParseMount(t *testing.T) {
+	var err error
+
+	_, err = parseMount("zero 1 2:3 4 5")
+	assert(t, err != nil, "unexpected nil error return")
+
+	_, err = parseMount("0 one 2:3 4 5")
+	assert(t, err != nil, "unexpected nil error return")
+
+	_, err = parseMount("0 1 two:3 4 5")
+	assert(t, err != nil, "unexpected nil error return")
+
+	_, err = parseMount("0 1 2:three 4 5")
+	assert(t, err != nil, "unexpected nil error return")
+}
+
 func TestMounts(t *testing.T) {
-	fs, err := NewFileSystem("testdata")
+	fs, err := NewFileSystem("testdata/proc")
 	ok(t, err)
 
 	expectedMounts := []proc.Mount{
@@ -64,8 +80,83 @@ func TestMounts(t *testing.T) {
 				"uid":      "42",
 			},
 		},
+		proc.Mount{
+			MountID:        uint(43),
+			ParentID:       uint(19),
+			Major:          uint(0),
+			Minor:          uint(7),
+			Root:           "/",
+			MountPoint:     "/sys/kernel/debug",
+			MountOptions:   []string{"rw", "relatime"},
+			OptionalFields: map[string]string{"shared": "25"},
+			FilesystemType: "debugfs",
+			MountSource:    "debugfs",
+			SuperOptions: map[string]string{
+				"rw": "",
+			},
+		},
+		proc.Mount{
+			MountID:        uint(138),
+			ParentID:       uint(43),
+			Major:          uint(0),
+			Minor:          uint(9),
+			Root:           "/",
+			MountPoint:     "/sys/kernel/debug/tracing",
+			MountOptions:   []string{"rw", "relatime"},
+			OptionalFields: map[string]string{"shared": "118"},
+			FilesystemType: "tracefs",
+			MountSource:    "tracefs",
+			SuperOptions: map[string]string{
+				"rw": "",
+			},
+		},
 	}
 
 	actualMounts := fs.Mounts()
 	equals(t, expectedMounts, actualMounts)
+}
+
+func TestHostFileSystem(t *testing.T) {
+	nohostProcFS, err := NewFileSystem("testdata/nohost")
+	ok(t, err)
+
+	var expected *FileSystem
+	fs := nohostProcFS.HostFileSystem()
+	equals(t, expected, fs)
+
+	hostProcFS, err := NewFileSystem("testdata/host")
+	ok(t, err)
+
+	fs = hostProcFS.HostFileSystem()
+	equals(t, "testdata/host", hostProcFS.MountPoint)
+
+	procFS, err := NewFileSystem("testdata/proc")
+	ok(t, err)
+
+	fs = procFS.HostFileSystem()
+	equals(t, procFS, fs)
+}
+
+func TestPerfEventDir(t *testing.T) {
+	procFS, err := NewFileSystem("testdata/proc")
+	ok(t, err)
+	equals(t, "", procFS.PerfEventDir())
+
+	hostProcFS, err := NewFileSystem("testdata/nohost")
+	ok(t, err)
+	equals(t, "/sys/fs/cgroup/perf_event", hostProcFS.PerfEventDir())
+}
+
+func TestTracingDir(t *testing.T) {
+	procFS, err := NewFileSystem("testdata/proc")
+	ok(t, err)
+	equals(t, "/sys/kernel/debug/tracing", procFS.TracingDir())
+
+	hostProcFS, err := NewFileSystem("testdata/nohost")
+	ok(t, err)
+	equals(t, "", hostProcFS.TracingDir())
+
+	debugfsProcFS, err := NewFileSystem("testdata/debugfs")
+	ok(t, err)
+	equals(t, "testdata/debugfs/mnt/debugfs/tracing", debugfsProcFS.TracingDir())
 }
