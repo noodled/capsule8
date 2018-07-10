@@ -110,7 +110,7 @@ func (fs *FileSystem) Mounts() []proc.Mount {
 	return mounts
 }
 
-func (fs *FileSystem) findHostFileSystem() *FileSystem {
+func (fs *FileSystem) findHostFileSystem() proc.FileSystem {
 	for _, mi := range fs.Mounts() {
 		if mi.FilesystemType == "proc" && mi.MountPoint != fs.MountPoint {
 			fs, err := NewFileSystem(mi.MountPoint)

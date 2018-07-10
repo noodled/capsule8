@@ -81,9 +81,9 @@ func TestSafeEventAttrMap(t *testing.T) {
 	equals(t, 0, len(sm.getMap()))
 
 	m := newEventAttrMap()
-	m[1] = &EventAttr{Type: 1001}
-	m[2] = &EventAttr{Type: 1002}
-	m[3] = &EventAttr{Type: 1003}
+	m[1] = EventAttr{Type: 1001}
+	m[2] = EventAttr{Type: 1002}
+	m[3] = EventAttr{Type: 1003}
 	sm = newSafeEventAttrMap()
 	sm.updateInPlace(m)
 	equals(t, 3, len(sm.getMap()))
@@ -103,7 +103,7 @@ func TestSafeEventAttrMap(t *testing.T) {
 				switch x % 3 {
 				case 0:
 					lm := newEventAttrMap()
-					lm[i] = &EventAttr{Type: uint32(x)}
+					lm[i] = EventAttr{Type: uint32(x)}
 					sm.update(lm)
 				case 1:
 					lm := sm.getMap()
@@ -171,6 +171,44 @@ func TestSafeRegisteredEventMap(t *testing.T) {
 	wg.Wait()
 }
 
+type dummyPerfGroupLeaderEventSourceLeader struct {
+	id uint64
+}
+
+func (s *dummyPerfGroupLeaderEventSourceLeader) Close() error {
+	return nil
+}
+
+func (s *dummyPerfGroupLeaderEventSourceLeader) Disable() error {
+	return nil
+}
+
+func (s *dummyPerfGroupLeaderEventSourceLeader) Enable() error {
+	return nil
+}
+
+func (s *dummyPerfGroupLeaderEventSourceLeader) SetFilter(f string) error {
+	return nil
+}
+
+func (s *dummyPerfGroupLeaderEventSourceLeader) SourceID() uint64 {
+	return s.id
+}
+
+func (s *dummyPerfGroupLeaderEventSourceLeader) NewEventSource(
+	attr EventAttr,
+	flags uintptr,
+) (EventSource, error) {
+	return nil, nil
+}
+
+func (s *dummyPerfGroupLeaderEventSourceLeader) Read(
+	attrMap map[uint64]EventAttr,
+	f func(Sample, error),
+) {
+	// do nothing
+}
+
 func TestSafePerfGroupLeaderMap(t *testing.T) {
 	sm := newSafePerfGroupLeaderMap()
 	assert(t, sm != nil, "newSafePerfGroupLeaderMap returned nil")
@@ -179,16 +217,16 @@ func TestSafePerfGroupLeaderMap(t *testing.T) {
 	_, p := sm.lookup(8)
 	equals(t, false, p)
 
-	sm.removeInPlace(map[int]bool{1: true, 2: true, 3: true})
+	sm.removeInPlace(map[uint64]struct{}{1: struct{}{}, 2: struct{}{}, 3: struct{}{}})
 	equals(t, 0, len(sm.getMap()))
 
-	sm.remove(map[int]bool{1: true, 2: true, 3: true})
+	sm.remove(map[uint64]struct{}{1: struct{}{}, 2: struct{}{}, 3: struct{}{}})
 	equals(t, 0, len(sm.getMap()))
 
 	m := newPerfGroupLeaderMap()
-	m[1] = &perfGroupLeader{fd: 1}
-	m[2] = &perfGroupLeader{fd: 2}
-	m[3] = &perfGroupLeader{fd: 3}
+	m[1] = &perfGroupLeader{source: &dummyPerfGroupLeaderEventSourceLeader{id: 1}}
+	m[2] = &perfGroupLeader{source: &dummyPerfGroupLeaderEventSourceLeader{id: 2}}
+	m[3] = &perfGroupLeader{source: &dummyPerfGroupLeaderEventSourceLeader{id: 3}}
 	sm = newSafePerfGroupLeaderMap()
 	var leaders []*perfGroupLeader
 	for _, v := range m {
@@ -198,7 +236,7 @@ func TestSafePerfGroupLeaderMap(t *testing.T) {
 	equals(t, 3, len(sm.getMap()))
 	equals(t, m, sm.getMap())
 
-	sm.removeInPlace(map[int]bool{2: true})
+	sm.removeInPlace(map[uint64]struct{}{2: struct{}{}})
 	delete(m, 2)
 	equals(t, 2, len(sm.getMap()))
 	equals(t, m, sm.getMap())
@@ -208,15 +246,16 @@ func TestSafePerfGroupLeaderMap(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func(i int) {
-			for x := 0; x < 1000; x++ {
+			for x := uint64(0); x < 1000; x++ {
 				switch x % 3 {
 				case 0:
-					l := &perfGroupLeader{fd: x}
+					s := &dummyPerfGroupLeaderEventSourceLeader{id: x}
+					l := &perfGroupLeader{source: s}
 					sm.update([]*perfGroupLeader{l})
 				case 1:
 					_, _ = sm.lookup(x)
 				case 2:
-					sm.remove(map[int]bool{x: true})
+					sm.remove(map[uint64]struct{}{x: struct{}{}})
 				}
 			}
 			wg.Done()

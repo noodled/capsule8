@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/capsule8/capsule8/pkg/sys/proc"
+
 	"github.com/golang/glog"
 )
 
@@ -47,7 +49,7 @@ type FileSystem struct {
 	numCPU     int
 	numCPUOnce sync.Once
 
-	hostProcFS     *FileSystem
+	hostProcFS     proc.FileSystem
 	hostProcFSOnce sync.Once
 }
 

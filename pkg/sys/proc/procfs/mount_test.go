@@ -120,7 +120,7 @@ func TestHostFileSystem(t *testing.T) {
 	nohostProcFS, err := NewFileSystem("testdata/nohost")
 	ok(t, err)
 
-	var expected *FileSystem
+	var expected proc.FileSystem
 	fs := nohostProcFS.HostFileSystem()
 	equals(t, expected, fs)
 
