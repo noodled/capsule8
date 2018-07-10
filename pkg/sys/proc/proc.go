@@ -31,6 +31,24 @@ type FileSystem interface {
 	// Mounts returns the list of currently mounted filesystems.
 	Mounts() []Mount
 
+	// HostFileSystem returns a FileSystem representing the underlying
+	// host's procfs from the perspective of the active proc.FileSystem.
+	// If the calling process is running in the host pid namespace, the
+	// receiver may return itself. If the calling process is running in a
+	// container and no host proc filesystem is mounted in, the return will
+	// be nil.
+	HostFileSystem() FileSystem
+
+	// PerfEventDir returns the perf_event cgroup mountpoint to use to
+	// monitor specific cgroups. Return the empty string if no perf_event
+	// cgroup filesystem is mounted.
+	PerfEventDir() string
+
+	// TracingDir returns the tracefs mountpoint to use to control the
+	// Linux kernel trace event subsystem. Returns the empty string if no
+	// tracefs filesystem is mounted.
+	TracingDir() string
+
 	// KernelTextSymbolNames returns a mapping of kernel symbols in the
 	// text segment. For each symbol in the map, the key is the source name
 	// for the symbol, and the value is the actual linker name that should

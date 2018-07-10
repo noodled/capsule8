@@ -15,15 +15,14 @@
 package sys
 
 import (
-	"syscall"
+	"golang.org/x/sys/unix"
 )
 
 // KernelVersion returns the version of the currently running kernel in major,
 // minor, patchlevel form.
 func KernelVersion() (int, int, int) {
-	var buf syscall.Utsname
-	err := syscall.Uname(&buf)
-	if err != nil {
+	var buf unix.Utsname
+	if err := unix.Uname(&buf); err != nil {
 		return 0, 0, 0
 	}
 

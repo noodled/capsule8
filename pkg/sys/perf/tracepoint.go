@@ -65,12 +65,12 @@ type traceEventField struct {
 	arraySize    int // 0 == [] array, >0 == # elements
 }
 
-func (field *traceEventField) setTypeFromSizeAndSign(isArray bool, arraySize int) (bool, error) {
+func (field *traceEventField) setTypeFromSizeAndSign(isArray bool, arraySize int) bool {
 	if isArray {
 		if arraySize == -1 {
 			// If this is an array of unknown size, we have to
 			// skip it, because the field size is ambiguous
-			return true, nil
+			return true
 		}
 		field.dataTypeSize = field.Size / arraySize
 	} else {
@@ -106,12 +106,12 @@ func (field *traceEventField) setTypeFromSizeAndSign(isArray bool, arraySize int
 		// We can't figure out the type from the information given to
 		// us. We're here likely because of a typedef name we didn't
 		// recognize that's an array of integers or something. Skip it.
-		return true, nil
+		return true
 	}
-	return false, nil
+	return false
 }
 
-func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize int) (bool, error) {
+func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize int) bool {
 	if strings.HasPrefix(s, "const ") {
 		s = s[6:]
 	}
@@ -128,17 +128,16 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 		// The kernel is a bit unreliable about reporting "int" with
 		// different sizes and signs, so try to use size/sign whenever
 		// possible. If it's not possible, assume 32-bit int
-		skip, err := field.setTypeFromSizeAndSign(isArray, arraySize)
-		if skip && err == nil {
+		skip := field.setTypeFromSizeAndSign(isArray, arraySize)
+		if skip {
 			if field.IsSigned {
 				field.dataType = TraceEventFieldTypeSignedInt32
 			} else {
 				field.dataType = TraceEventFieldTypeUnsignedInt32
 			}
 			field.dataTypeSize = 4
-			return false, nil
 		}
-		return skip, err
+		return false
 	case "char", "signed char", "unsigned char":
 		if field.IsSigned {
 			field.dataType = TraceEventFieldTypeSignedInt8
@@ -146,7 +145,7 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 			field.dataType = TraceEventFieldTypeUnsignedInt8
 		}
 		field.dataTypeSize = 1
-		return false, nil
+		return false
 	case "short", "signed short", "unsigned short":
 		if field.IsSigned {
 			field.dataType = TraceEventFieldTypeSignedInt16
@@ -154,10 +153,10 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 			field.dataType = TraceEventFieldTypeUnsignedInt16
 		}
 		field.dataTypeSize = 2
-		return false, nil
+		return false
 	case "long", "signed long", "unsigned long":
-		skip, err := field.setTypeFromSizeAndSign(isArray, arraySize)
-		if skip && err == nil {
+		skip := field.setTypeFromSizeAndSign(isArray, arraySize)
+		if skip {
 			// Assume a 64-bit kernel
 			if field.IsSigned {
 				field.dataType = TraceEventFieldTypeSignedInt64
@@ -165,9 +164,8 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 				field.dataType = TraceEventFieldTypeUnsignedInt64
 			}
 			field.dataTypeSize = 8
-			return false, nil
 		}
-		return skip, err
+		return false
 	case "long long", "signed long long", "unsigned long long":
 		if field.IsSigned {
 			field.dataType = TraceEventFieldTypeSignedInt64
@@ -175,41 +173,41 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 			field.dataType = TraceEventFieldTypeUnsignedInt64
 		}
 		field.dataTypeSize = 8
-		return false, nil
+		return false
 
 	// Fixed-size types
 	case "s8", "__s8", "int8_t", "__int8_t":
 		field.dataType = TraceEventFieldTypeSignedInt8
 		field.dataTypeSize = 1
-		return false, nil
+		return false
 	case "u8", "__u8", "uint8_t", "__uint8_t":
-		field.dataType = TraceEventFieldTypeSignedInt16
+		field.dataType = TraceEventFieldTypeUnsignedInt8
 		field.dataTypeSize = 1
-		return false, nil
+		return false
 	case "s16", "__s16", "int16_t", "__int16_t":
 		field.dataType = TraceEventFieldTypeSignedInt16
 		field.dataTypeSize = 2
-		return false, nil
+		return false
 	case "u16", "__u16", "uint16_t", "__uint16_t":
 		field.dataType = TraceEventFieldTypeUnsignedInt16
 		field.dataTypeSize = 2
-		return false, nil
+		return false
 	case "s32", "__s32", "int32_t", "__int32_t":
 		field.dataType = TraceEventFieldTypeSignedInt32
 		field.dataTypeSize = 4
-		return false, nil
+		return false
 	case "u32", "__u32", "uint32_t", "__uint32_t":
 		field.dataType = TraceEventFieldTypeUnsignedInt32
 		field.dataTypeSize = 4
-		return false, nil
+		return false
 	case "s64", "__s64", "int64_t", "__int64_t":
 		field.dataType = TraceEventFieldTypeSignedInt64
 		field.dataTypeSize = 8
-		return false, nil
+		return false
 	case "u64", "__u64", "uint64_t", "__uint64_t":
 		field.dataType = TraceEventFieldTypeUnsignedInt64
 		field.dataTypeSize = 8
-		return false, nil
+		return false
 
 		/*
 			// Known kernel typedefs in 4.10
@@ -239,13 +237,13 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 
 			case "xen_mc_callback_fn_t":
 				// This is presumably a pointer type
-				return true, nil
+				return true
 
 			case "uuid_be", "uuid_le":
 				field.dataType = TraceEventFieldTypeUnsignedInt8
 				field.dataTypeSize = 1
 				field.arraySize = 16
-				return false, nil
+				return false
 		*/
 
 	default:
@@ -264,11 +262,11 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 		}
 		if strings.HasPrefix(s, "struct ") {
 			// Skip structs
-			return true, nil
+			return true
 		}
 		if strings.HasPrefix(s, "union ") {
 			// Skip unions
-			return true, nil
+			return true
 		}
 		if strings.HasPrefix(s, "enum ") {
 			return field.setTypeFromSizeAndSign(isArray, arraySize)
@@ -284,6 +282,7 @@ func (field *traceEventField) parseTypeName(s string, isArray bool, arraySize in
 var linuxArraySizeSanityWarning = false
 
 func (field *traceEventField) parseTypeAndName(s string) (bool, error) {
+	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "__data_loc") {
 		s = s[11:]
 		field.dataLocSize = field.Size
@@ -293,34 +292,30 @@ func (field *traceEventField) parseTypeAndName(s string) (bool, error) {
 		// is normally 4 bytes (offset uint16, length uint16)
 
 		x := strings.LastIndexFunc(s, unicode.IsSpace)
-		field.FieldName = string(strings.TrimSpace(s[x+1:]))
+		field.FieldName = s[x+1:]
 
-		s = s[:x]
+		s = strings.TrimSpace(s[:x])
 		if !strings.HasSuffix(s, "[]") {
 			return true, errors.New("Expected [] suffix on __data_loc type")
 		}
-		s = s[:len(s)-2]
-		field.TypeName = string(s)
+		s = strings.TrimSpace(s[:len(s)-2])
+		field.TypeName = s
 
 		if s == "char" {
 			field.dataType = TraceEventFieldTypeString
 			field.dataTypeSize = 1
-		} else {
-			skip, err := field.parseTypeName(s, true, -1)
-			if err != nil {
-				return true, err
-			}
-			if skip {
-				return true, nil
-			}
+		} else if field.parseTypeName(s, true, -1) {
+			return true, nil
 		}
 		return false, nil
 	}
 
 	arraySize := -1
 	isArray := false
-	x := strings.IndexRune(s, '[')
-	if x != -1 {
+	if x := strings.IndexRune(s, '['); x != -1 {
+		if x+1 >= len(s) {
+			return true, errors.New("Closing ] missing")
+		}
 		if s[x+1] == ']' {
 			return true, errors.New("Unexpected __data_loc without __data_loc prefix")
 		}
@@ -337,15 +332,23 @@ func (field *traceEventField) parseTypeAndName(s string) (bool, error) {
 		isArray = true
 	}
 
-	x = strings.LastIndexFunc(s, unicode.IsSpace)
-	field.TypeName = string(s[:x])
-	field.FieldName = string(strings.TrimSpace(s[x+1:]))
-
-	skip, err := field.parseTypeName(field.TypeName, isArray, arraySize)
-	if err != nil {
-		return true, err
+	if x := strings.LastIndexFunc(s, unicode.IsSpace); x != -1 {
+		y := x + 1
+		if y < len(s) && s[y] == '*' {
+			y++
+			for y < len(s) && s[y] == '*' {
+				y++
+			}
+			x = y
+		}
+		field.TypeName = strings.TrimSpace(s[:x])
+		field.FieldName = s[y:]
 	}
-	if skip {
+	if field.FieldName == "" {
+		return true, errors.New("Found type name without field name")
+	}
+
+	if field.parseTypeName(field.TypeName, isArray, arraySize) {
 		return true, nil
 	}
 	if isArray {
@@ -359,11 +362,8 @@ func (field *traceEventField) parseTypeAndName(s string) (bool, error) {
 					linuxArraySizeSanityWarning = true
 					glog.Warning("Linux kernel tracepoint format size information is incorrect; compensating")
 				}
-				skip, err = field.parseTypeName(field.TypeName, true, -1)
-				if err != nil {
-					return true, err
-				}
-				if skip {
+				if field.parseTypeName(field.TypeName, true, -1) {
+					// I'm pretty sure this isn't actually reachable
 					return true, nil
 				}
 				field.arraySize = field.Size / field.dataTypeSize
@@ -380,7 +380,7 @@ func parseTraceEventField(line string) (*traceEventField, error) {
 	var err error
 	var fieldString string
 
-	field := &traceEventField{}
+	field := traceEventField{}
 	fields := strings.Split(strings.TrimSpace(line), ";")
 	for i := 0; i < len(fields); i++ {
 		if fields[i] == "" {
@@ -420,7 +420,7 @@ func parseTraceEventField(line string) (*traceEventField, error) {
 			field.dataType = TraceEventFieldTypeUnsignedInt8
 		}
 	}
-	return field, nil
+	return &field, nil
 }
 
 func getTraceEventFormat(tracingDir, name string) (uint16, map[string]traceEventField, error) {

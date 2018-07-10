@@ -179,10 +179,10 @@ const (
 	eaInherit
 	eaPinned
 	eaExclusive
-	eaExclusiveUser
-	eaExclusiveKernel
-	eaExclusiveHV
-	eaExclusiveIdle
+	eaExcludeUser
+	eaExcludeKernel
+	eaExcludeHV
+	eaExcludeIdle
 	eaMmap
 	eaComm
 	eaFreq
