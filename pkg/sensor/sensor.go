@@ -573,7 +573,20 @@ func (s *Sensor) RegisterKprobe(
 				address = actual
 			}
 		} else {
-			return 0, fmt.Errorf("Kernel symbol not found: %s", address)
+			// Linux 4.17 changes how syscall handlers are named, adding a `__x64_`
+			// prefix. Automatically try to prepend that if we're registering a
+			// kprobe on a syscall handler.
+			if strings.HasPrefix(address, "sys_") {
+				actual, ok := s.kallsyms["__x64_"+address]
+				if ok {
+					glog.V(2).Infof("Using %q for kprobe symbol %q", actual, address)
+					address = actual
+				} else {
+					return 0, fmt.Errorf("Kernel symbol not found: %s", address)
+				}
+			} else {
+				return 0, fmt.Errorf("Kernel symbol not found: %s", address)
+			}
 		}
 	}
 	return s.Monitor.RegisterKprobe(address, onReturn, output, fn, options...)

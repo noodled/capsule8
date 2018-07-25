@@ -65,11 +65,11 @@ type dockerConfigV2 struct {
 const (
 	dockerRenameKprobeSymbol    = "sys_renameat"
 	dockerRenameKprobeFetchargs = "newname=+0(%cx):string"
-	dockerRenameKprobeFilter    = "newname ~ */config.v2.json"
+	dockerRenameKprobeFilter    = "newname ~ \"*/config.v2.json\""
 
 	dockerUnlinkKprobeSymbol    = "sys_unlinkat"
 	dockerUnlinkKprobeFetchargs = "pathname=+0(%si):string"
-	dockerUnlinkKprobeFilter    = "pathname ~ */config.v2.json"
+	dockerUnlinkKprobeFilter    = "pathname ~ \"*/config.v2.json\""
 )
 
 type dockerDeferredAction func()
