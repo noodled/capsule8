@@ -193,11 +193,11 @@ func NewSensor(options ...NewSensorOption) (*Sensor, error) {
 func (s *Sensor) Start() error {
 	var buf unix.Utsname
 	if err := unix.Uname(&buf); err == nil {
-		machine := string(buf.Machine[:])
-		nodename := string(buf.Nodename[:])
-		sysname := string(buf.Sysname[:])
-		release := string(buf.Release[:])
-		version := string(buf.Version[:])
+		machine := strings.TrimRight(string(buf.Machine[:]), "\000")
+		nodename := strings.TrimRight(string(buf.Nodename[:]), "\000")
+		sysname := strings.TrimRight(string(buf.Sysname[:]), "\000")
+		release := strings.TrimRight(string(buf.Release[:]), "\000")
+		version := strings.TrimRight(string(buf.Version[:]), "\000")
 		glog.Infof("%s %s %s %s %s",
 			machine, nodename, sysname, release, version)
 	}

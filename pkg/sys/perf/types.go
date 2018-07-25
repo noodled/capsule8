@@ -788,7 +788,7 @@ func (sample *Sample) resolveEventAttr(
 	reader io.ReadSeeker,
 	startPos int64,
 	eventAttr *EventAttr,
-	formatMap map[uint64]*EventAttr,
+	formatMap map[uint64]EventAttr,
 ) (uint64, *EventAttr) {
 	// Assumptions: All EventAttr structures in use must have following
 	// set for any of this code to function properly:
@@ -827,24 +827,24 @@ func (sample *Sample) resolveEventAttr(
 		return sampleID, eventAttr
 	}
 
-	eventAttr, ok := formatMap[sampleID]
+	attr, ok := formatMap[sampleID]
 	if !ok {
 		panic(readError{fmt.Errorf("Unknown SampleID %d from raw sample", sampleID)})
 	}
-	if !eventAttr.SampleIDAll {
+	if !attr.SampleIDAll {
 		panic("SampleIDAll not specified in EventAttr")
 	}
-	if eventAttr.SampleType&PERF_SAMPLE_IDENTIFIER == 0 {
+	if attr.SampleType&PERF_SAMPLE_IDENTIFIER == 0 {
 		panic("PERF_SAMPLE_IDENTIFIER not specified in EventAttr")
 	}
 
-	return sampleID, eventAttr
+	return sampleID, &attr
 }
 
 func (sample *Sample) read(
 	reader io.ReadSeeker,
 	eventAttr *EventAttr,
-	formatMap map[uint64]*EventAttr,
+	formatMap map[uint64]EventAttr,
 ) (err error) {
 	startPos, _ := reader.Seek(0, os.SEEK_CUR)
 
@@ -872,7 +872,9 @@ func (sample *Sample) read(
 			return nil
 		}
 	} else if sample.Type == PERF_RECORD_SAMPLE {
-		readOrPanic(reader, &sampleID)
+		if eventAttr.SampleType&PERF_SAMPLE_IDENTIFIER != 0 {
+			readOrPanic(reader, &sampleID)
+		}
 	} // else SampleID is unknown
 
 	switch sample.Type {
