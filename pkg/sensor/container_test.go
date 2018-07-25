@@ -16,7 +16,79 @@ package sensor
 
 import (
 	"testing"
+
+	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestContainerDecoders(t *testing.T) {
+	sensor := newUnitTestSensor(t)
+	defer sensor.Stop()
+
+	sample := &perf.SampleRecord{
+		Time: uint64(sys.CurrentMonotonicRaw()),
+	}
+	data := perf.TraceEventSampleData{
+		"__container__": ContainerInfo{
+			ID:         "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ./",
+			Name:       "capsule8-sensor-container",
+			ImageID:    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz./",
+			ImageName:  "capsule8-sensor-image",
+			Pid:        872364,
+			ExitCode:   255,
+			Runtime:    ContainerRuntimeDocker,
+			State:      ContainerStateRunning,
+			JSONConfig: "This is the JSON config that isn't actually JSON",
+			OCIConfig:  "This is the OCI config that isn't real",
+		},
+	}
+
+	type testCase struct {
+		decoder      perf.TraceEventDecoderFn
+		expectedType interface{}
+	}
+	testCases := []testCase{
+		testCase{
+			decoder:      sensor.ContainerCache.decodeContainerCreatedEvent,
+			expectedType: ContainerCreatedTelemetryEvent{},
+		},
+		testCase{
+			decoder:      sensor.ContainerCache.decodeContainerDestroyedEvent,
+			expectedType: ContainerDestroyedTelemetryEvent{},
+		},
+		testCase{
+			decoder:      sensor.ContainerCache.decodeContainerExitedEvent,
+			expectedType: ContainerExitedTelemetryEvent{},
+		},
+		testCase{
+			decoder:      sensor.ContainerCache.decodeContainerRunningEvent,
+			expectedType: ContainerRunningTelemetryEvent{},
+		},
+		testCase{
+			decoder:      sensor.ContainerCache.decodeContainerUpdatedEvent,
+			expectedType: ContainerUpdatedTelemetryEvent{},
+		},
+	}
+
+	for _, tc := range testCases {
+		i, err := tc.decoder(sample, data)
+		require.NotNil(t, i)
+		require.NoError(t, err)
+
+		e, ok := i.(TelemetryEvent)
+		require.True(t, ok)
+		require.IsType(t, tc.expectedType, i)
+
+		ok = testCommonTelemetryEventData(t, sensor, e)
+		require.True(t, ok)
+
+		cted := e.CommonTelemetryEventData()
+		assert.Equal(t, data["__container__"], cted.Container)
+	}
+}
 
 func TestFilterContainerId(t *testing.T) {
 	cf := NewContainerFilter()
@@ -26,16 +98,12 @@ func TestFilterContainerId(t *testing.T) {
 	pass := ContainerInfo{
 		ID: "alice",
 	}
-	if !cf.Match(pass) {
-		t.Error("No matching container ID found for alice")
-	}
+	assert.True(t, cf.Match(pass))
 
 	fail := ContainerInfo{
 		ID: "bill",
 	}
-	if cf.Match(fail) {
-		t.Error("Unexpected matching container ID found for bill")
-	}
+	assert.False(t, cf.Match(fail))
 }
 
 func TestFilterContainerImageId(t *testing.T) {
@@ -47,17 +115,13 @@ func TestFilterContainerImageId(t *testing.T) {
 		ID:      "pass",
 		ImageID: "alice",
 	}
-	if !cf.Match(pass) {
-		t.Error("No matching container image ID found for alice")
-	}
+	assert.True(t, cf.Match(pass))
 
 	fail := ContainerInfo{
 		ID:      "fail",
 		ImageID: "bill",
 	}
-	if cf.Match(fail) {
-		t.Error("Unexpected matching container image ID found for bill")
-	}
+	assert.False(t, cf.Match(fail))
 }
 
 func TestFilterContainerImageNames(t *testing.T) {
@@ -69,17 +133,13 @@ func TestFilterContainerImageNames(t *testing.T) {
 		ID:        "pass",
 		ImageName: "alice",
 	}
-	if !cf.Match(pass) {
-		t.Error("No matching image name found for alice")
-	}
+	assert.True(t, cf.Match(pass))
 
 	fail := ContainerInfo{
 		ID:        "fail",
 		ImageName: "bill",
 	}
-	if cf.Match(fail) {
-		t.Error("Unexpected matching image name found for bill")
-	}
+	assert.False(t, cf.Match(fail))
 }
 
 func TestFilterContainerNames(t *testing.T) {
@@ -91,15 +151,11 @@ func TestFilterContainerNames(t *testing.T) {
 		ID:   "pass",
 		Name: "alice",
 	}
-	if !cf.Match(pass) {
-		t.Error("No matching container name found for alice")
-	}
+	assert.True(t, cf.Match(pass))
 
 	fail := ContainerInfo{
 		ID:   "fail",
 		Name: "bill",
 	}
-	if cf.Match(fail) {
-		t.Error("Unexpected matching container name found for bill")
-	}
+	assert.False(t, cf.Match(fail))
 }

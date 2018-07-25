@@ -95,13 +95,11 @@ var Sensor struct {
 }
 
 func init() {
-	err := envconfig.Process("CAPSULE8", &Global)
-	if err != nil {
+	if err := envconfig.Process("CAPSULE8", &Global); err != nil {
 		glog.Fatal(err)
 	}
 
-	err = envconfig.Process("CAPSULE8_SENSOR", &Sensor)
-	if err != nil {
+	if err := envconfig.Process("CAPSULE8_SENSOR", &Sensor); err != nil {
 		glog.Fatal(err)
 	}
 }

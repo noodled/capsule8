@@ -112,7 +112,7 @@ func (e ProcessExitTelemetryEvent) CommonTelemetryEventData() TelemetryEventData
 type ProcessForkTelemetryEvent struct {
 	TelemetryEventData
 
-	ChildPID       int
+	ChildPID       int32
 	ChildProcessID string
 }
 
@@ -884,7 +884,7 @@ func (pc *ProcessInfoCache) decodeProcessForkEvent(
 	if !e.InitWithSample(pc.sensor, sample, data) {
 		return nil, nil
 	}
-	e.ChildPID = int(data["fork_child_pid"].(int32))
+	e.ChildPID = data["fork_child_pid"].(int32)
 	e.ChildProcessID = data["fork_child_id"].(string)
 	return e, nil
 }

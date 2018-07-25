@@ -1036,14 +1036,14 @@ func newTelemetryEvent(e TelemetryEventData) *api.TelemetryEvent {
 
 func translateNetworkAddress(addr NetworkAddressTelemetryEventData) *api.NetworkAddress {
 	switch addr.Family {
-	case 1: // AF_LOCAL
+	case unix.AF_LOCAL:
 		return &api.NetworkAddress{
 			Family: api.NetworkAddressFamily_NETWORK_ADDRESS_FAMILY_LOCAL,
 			Address: &api.NetworkAddress_LocalAddress{
 				LocalAddress: addr.UnixPath,
 			},
 		}
-	case 2: // AF_INET
+	case unix.AF_INET:
 		return &api.NetworkAddress{
 			Family: api.NetworkAddressFamily_NETWORK_ADDRESS_FAMILY_INET,
 			Address: &api.NetworkAddress_Ipv4Address{
@@ -1055,7 +1055,7 @@ func translateNetworkAddress(addr NetworkAddressTelemetryEventData) *api.Network
 				},
 			},
 		}
-	case 10: // AF_INET6
+	case unix.AF_INET6:
 		return &api.NetworkAddress{
 			Family: api.NetworkAddressFamily_NETWORK_ADDRESS_FAMILY_INET6,
 			Address: &api.NetworkAddress_Ipv6Address{
@@ -1374,7 +1374,7 @@ func (s *Subscription) translateEvent(ev TelemetryEvent) *api.TelemetryEvent {
 			Process: &api.ProcessEvent{
 				Type:         api.ProcessEventType_PROCESS_EVENT_TYPE_FORK,
 				ForkChildId:  e.ChildProcessID,
-				ForkChildPid: int32(e.ChildPID),
+				ForkChildPid: e.ChildPID,
 			},
 		}
 

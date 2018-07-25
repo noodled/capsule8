@@ -25,8 +25,6 @@ import (
 
 	"github.com/gobwas/glob"
 	"github.com/golang/glog"
-
-	"golang.org/x/sys/unix"
 )
 
 // ContainerEventTypes defines the field types that can be used with filters on
@@ -281,27 +279,9 @@ func (cc *ContainerCache) enqueueContainerEvent(
 	sampleID perf.SampleID,
 	info *ContainerInfo,
 ) error {
-	ws := unix.WaitStatus(info.ExitCode)
 	data := map[string]interface{}{
-		"__container__":    *info,
-		"container_id":     info.ID,
-		"name":             info.Name,
-		"image_id":         info.ImageID,
-		"image_name":       info.ImageName,
-		"host_pid":         int32(info.Pid),
-		"exit_code":        int32(info.ExitCode),
-		"exit_status":      uint32(0),
-		"exit_signal":      uint32(0),
-		"exit_core_dumped": ws.CoreDump(),
+		"__container__": *info,
 	}
-
-	if ws.Exited() {
-		data["exit_status"] = uint32(ws.ExitStatus())
-	}
-	if ws.Signaled() {
-		data["exit_signal"] = uint32(ws.Signal())
-	}
-
 	return cc.sensor.Monitor.EnqueueExternalSample(eventID, sampleID, data)
 }
 

@@ -17,6 +17,8 @@ package sensor
 import (
 	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
+
+	"golang.org/x/sys/unix"
 )
 
 // NetworkAttemptEventTypes defines the field types that can be used with
@@ -84,12 +86,12 @@ func (ted *NetworkAddressTelemetryEventData) initWithSample(
 ) {
 	ted.Family = data["sa_family"].(uint16)
 	switch ted.Family {
-	case 1: // AF_LOCAL
+	case unix.AF_LOCAL:
 		ted.UnixPath = data["sun_path"].(string)
-	case 2: // AF_INET
+	case unix.AF_INET:
 		ted.IPv4Address = data["sin_addr"].(uint32)
 		ted.IPv4Port = data["sin_port"].(uint16)
-	case 10: // AF_INET6
+	case unix.AF_INET6:
 		ted.IPv6AddressHigh = data["sin6_addr_high"].(uint64)
 		ted.IPv6AddressLow = data["sin6_addr_low"].(uint64)
 		ted.IPv6Port = data["sin6_port"].(uint16)

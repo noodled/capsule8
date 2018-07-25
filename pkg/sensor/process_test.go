@@ -15,49 +15,94 @@
 package sensor
 
 import (
+	"reflect"
 	"testing"
+
+	"github.com/capsule8/capsule8/pkg/sys"
+	"github.com/capsule8/capsule8/pkg/sys/perf"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-const arrayTaskCacheSize = 32768
-const mapTaskCacheSize = 32768
+func TestProcessDecoders(t *testing.T) {
+	sensor := newUnitTestSensor(t)
+	defer sensor.Stop()
 
-var values = []Task{
-	{1, 2, "foo", nil, nil, "6e250051f33e0988aa6e549daa6c36de5ddf296bced4f31cf1b8249556f27ed2", nil, 0, 0, "", "", nil, nil},
-	{1, 2, "bar", nil, nil, "6e250051f33e0988aa6e549daa6c36de5ddf296bced4f31cf1b8249556f27ed2", nil, 0, 0, "", "", nil, nil},
-	{1, 2, "baz", nil, nil, "6e250051f33e0988aa6e549daa6c36de5ddf296bced4f31cf1b8249556f27ed2", nil, 0, 0, "", "", nil, nil},
-	{1, 2, "qux", nil, nil, "6e250051f33e0988aa6e549daa6c36de5ddf296bced4f31cf1b8249556f27ed2", nil, 0, 0, "", "", nil, nil},
-}
-
-func TestCaches(t *testing.T) {
-	arrayCache := newArrayTaskCache(arrayTaskCacheSize)
-	mapCache := newMapTaskCache(mapTaskCacheSize)
-
-	var task *Task
-
-	for i := 0; i < arrayTaskCacheSize; i++ {
-		task = arrayCache.LookupTask(i + 1)
-		task.ContainerID = values[i%4].ContainerID
+	sample := &perf.SampleRecord{
+		Time: uint64(sys.CurrentMonotonicRaw()),
 	}
-	for i := 0; i < mapTaskCacheSize; i++ {
-		task = mapCache.LookupTask(i + 1)
-		task.ContainerID = values[i%4].ContainerID
+	data := perf.TraceEventSampleData{
+		"filename":          "/bin/bash",
+		"exec_command_line": []string{"bash", "-l"},
+
+		"code":             int32(234987),
+		"exit_status":      uint32(495678),
+		"exit_signal":      uint32(11),
+		"exit_core_dumped": true,
+
+		"fork_child_pid": int32(9485),
+		"fork_child_id":  "some string that is a child process id",
+
+		"cwd": "/var/run/capsule8",
 	}
 
-	for i := arrayTaskCacheSize - 2; i >= 0; i-- {
-		task = arrayCache.LookupTask(i + 1)
-		cid := task.ContainerID
-		if cid != values[i%4].ContainerID {
-			t.Fatalf("Expected %s for pid %d, got %s",
-				values[i%4].ContainerID, i, cid)
-		}
+	type testCase struct {
+		decoder      perf.TraceEventDecoderFn
+		expectedType interface{}
+		fieldChecks  map[string]string
+	}
+	testCases := []testCase{
+		testCase{
+			decoder:      sensor.ProcessCache.decodeProcessExecEvent,
+			expectedType: ProcessExecTelemetryEvent{},
+			fieldChecks: map[string]string{
+				"filename":          "Filename",
+				"exec_command_line": "CommandLine",
+			},
+		},
+		testCase{
+			decoder:      sensor.ProcessCache.decodeProcessExitEvent,
+			expectedType: ProcessExitTelemetryEvent{},
+			fieldChecks: map[string]string{
+				"code":             "ExitCode",
+				"exit_status":      "ExitStatus",
+				"exit_signal":      "ExitSignal",
+				"exit_core_dumped": "ExitCoreDumped",
+			},
+		},
+		testCase{
+			decoder:      sensor.ProcessCache.decodeProcessForkEvent,
+			expectedType: ProcessForkTelemetryEvent{},
+			fieldChecks: map[string]string{
+				"fork_child_pid": "ChildPID",
+				"fork_child_id":  "ChildProcessID",
+			},
+		},
+		testCase{
+			decoder:      sensor.ProcessCache.decodeProcessUpdateEvent,
+			expectedType: ProcessUpdateTelemetryEvent{},
+			fieldChecks: map[string]string{
+				"cwd": "CWD",
+			},
+		},
 	}
 
-	for i := mapTaskCacheSize - 2; i >= 0; i-- {
-		task = mapCache.LookupTask(i + 1)
-		cid := task.ContainerID
-		if cid != values[i%4].ContainerID {
-			t.Fatalf("Expected %s for pid %d, got %s",
-				values[i%4].ContainerID, i, cid)
+	for _, tc := range testCases {
+		i, err := tc.decoder(sample, data)
+		require.NotNil(t, i)
+		require.NoError(t, err)
+
+		e, ok := i.(TelemetryEvent)
+		require.True(t, ok)
+		require.IsType(t, tc.expectedType, i)
+
+		ok = testCommonTelemetryEventData(t, sensor, e)
+		require.True(t, ok)
+
+		value := reflect.ValueOf(i)
+		for k, v := range tc.fieldChecks {
+			assert.Equal(t, data[k], value.FieldByName(v).Interface())
 		}
 	}
 }
