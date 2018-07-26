@@ -49,7 +49,12 @@ func (fs *FileSystem) KernelTextSymbolNames() (map[string]string, error) {
 		// element unless both arguments are the empty string. No need
 		// to check len(parts) before using parts[0]
 		parts := strings.Split(fields[2], ".")
-		symbols[parts[0]] = fields[2]
+		_, exists := symbols[parts[0]]
+		// Add this as a symbol if no symbol already exists with name,
+		// or if this is an untouched symbol (i.e. no '.' in the name)
+		if !exists || len(parts) == 1 {
+			symbols[parts[0]] = fields[2]
+		}
 	}
 
 	return symbols, nil

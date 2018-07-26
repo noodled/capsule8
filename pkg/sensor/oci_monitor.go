@@ -46,7 +46,7 @@ type ociConfig struct {
 const (
 	ociSysOpenKprobeSymbol    = "do_sys_open"
 	ociSysOpenKprobeFetchargs = "filename=+0(%si):string flags=%dx:s32"
-	ociSysOpenKprobeFilter    = "(flags & 1 || flags & 2) && filename ~ */config.json"
+	ociSysOpenKprobeFilter    = "(flags & 1 || flags & 2) && filename ~ \"*/config.json\""
 
 	// It would be nice if we could also pull out file->dentry->d_parent->d_name
 	// here to get the parent filename, but testing yields no useful
@@ -55,13 +55,13 @@ const (
 	ociImaFileFreeKprobeFetchargs = "filename=+56(+24(%di)):string p=+56(+24(%di)):u64 " +
 		"f_op=+40(%di):u64 f_flags=+64(%di):u32 old_f_flags=+56(%di):u32"
 	// f_op will be NULL if f_inode is missing as in 2.6 kernels
-	ociImaFileFreeKprobeFilter = "p != 0 && filename == config.json " +
+	ociImaFileFreeKprobeFilter = "p != 0 && filename == \"config.json\" " +
 		"&& ((f_op == 0 && (old_f_flags & 1 || old_f_flags & 2)) || " +
 		"    (f_op != 0 && (f_flags & 1 || f_flags & 2)))"
 
 	ociUnlinkKprobeSymbol    = "sys_unlinkat"
 	ociUnlinkKprobeFetchargs = "pathname=+0(%si):string"
-	ociUnlinkKprobeFilter    = "pathname ~ */config.json"
+	ociUnlinkKprobeFilter    = "pathname ~ \"*/config.json\""
 )
 
 type ociDeferredAction func()

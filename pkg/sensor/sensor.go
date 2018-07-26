@@ -557,8 +557,27 @@ func (s *Sensor) IsKernelSymbolAvailable(symbol string) bool {
 	return ok
 }
 
+// Map for rewriting kprobe fetch args in kernel 4.17+
+// N.B. %di must come first to avoid replacing a %di in an already replaced
+// expression.
+// N.B. %cx actually needs to be replaced with pt_regs->r10. Since the syscall
+// handlers used to have "real" arguments, registers were setup according to the
+// x64 _C_ ABI, however now the syscalls only get a pointer to the register state
+// at the time the syscall entered, which means the registers are setup in the
+// x64 _syscall_ ABI.
+var fetchArgsReplacements = [][2]string{
+	{"%di", "+0x70(%di)"}, // pt_regs+0x70
+	{"%si", "+0x68(%di)"},
+	{"%dx", "+0x60(%di)"},
+	{"%cx", "+0x38(%di)"}, // This is actually replacing RCX with R10
+	{"%r8", "+0x48(%di)"},
+	{"%r9", "+0x40(%di)"},
+	{"%ax", "+0x50(%di)"},
+}
+
 // RegisterKprobe registers a kprobe with the sensor's EventMonitor instance,
-// but before doing so, ensures that the kernel symbol is available.
+// but before doing so, ensures that the kernel symbol is available and potentially
+// transforms it to account for new kernel changes.
 func (s *Sensor) RegisterKprobe(
 	address string,
 	onReturn bool,
@@ -573,7 +592,30 @@ func (s *Sensor) RegisterKprobe(
 				address = actual
 			}
 		} else {
-			return 0, fmt.Errorf("Kernel symbol not found: %s", address)
+			// Linux 4.17 changes how syscall handlers are done. It adds a `__x64_`
+			// prefix and also changes how arguments are handled in the syscall handler.
+			// Automatically try to prepend `__x64_` if we're registering a kprobe
+			// on a syscall handler, and if it succeeds, rewrite the kprobe fetch args.
+			if strings.HasPrefix(address, "sys_") {
+				actual, ok := s.kallsyms["__x64_"+address]
+				if ok {
+					glog.V(2).Infof("Using %q for kprobe symbol %q", actual, address)
+					address = actual
+
+					// rewrite `output` (the kprobe fetch args) to account for
+					// the only argument to the syscall handler being `pt_regs *regs`
+					for _, rewritePair := range fetchArgsReplacements {
+						srcReg := rewritePair[0]
+						dstExpr := rewritePair[1]
+						output = strings.Replace(output, srcReg, dstExpr, -1)
+					}
+					glog.V(2).Infof("Rewrote kprobe fetch args to %q", output)
+				} else {
+					return 0, fmt.Errorf("Kernel symbol not found: %s", address)
+				}
+			} else {
+				return 0, fmt.Errorf("Kernel symbol not found: %s", address)
+			}
 		}
 	}
 	return s.Monitor.RegisterKprobe(address, onReturn, output, fn, options...)
