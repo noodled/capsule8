@@ -914,7 +914,17 @@ func (pc *ProcessInfoCache) decodeNewTask(
 
 	pc.maybeDeferAction(func() {
 		parentTask, parentLeader := pc.LookupTaskAndLeader(parentPid)
-		childTask := pc.NewTaskWithPid(childPid)
+		childTask := pc.LookupTask(childPid)
+
+		existingStartTime := childTask.StartTime
+		now := sys.CurrentMonotonicRaw()
+
+		// If the cached task data has a start time that is relatively old,
+		// we must have missed the task's last exit. Forcefully create a new
+		// task here so we don't re-use old data.
+		if existingStartTime > 0 && now-existingStartTime > taskReuseThreshold {
+			childTask = pc.NewTaskWithPid(childPid)
+		}
 
 		pc.handleSysClone(parentTask, parentLeader, childTask,
 			cloneFlags, childComm, sample)
