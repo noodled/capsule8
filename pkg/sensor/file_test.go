@@ -17,6 +17,7 @@ package sensor
 import (
 	"testing"
 
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
@@ -35,11 +36,18 @@ func TestDecodeDoSysOpen(t *testing.T) {
 		Time: uint64(sys.CurrentMonotonicRaw()),
 	}
 	data := perf.TraceEventSampleData{
-		"filename": "/path/to/foo.bar",
-		"flags":    int32(29384756),
-		"mode":     int32(0664),
+		"common_pid": int32(sensorPID),
+		"filename":   "/path/to/foo.bar",
+		"flags":      int32(29384756),
+		"mode":       int32(0664),
 	}
+
 	i, err := s.decodeDoSysOpen(sample, data)
+	require.Nil(t, i)
+	require.NoError(t, err)
+
+	delete(data, "common_pid")
+	i, err = s.decodeDoSysOpen(sample, data)
 	require.NotNil(t, i)
 	require.NoError(t, err)
 	e, ok := i.(FileOpenTelemetryEvent)
@@ -50,4 +58,40 @@ func TestDecodeDoSysOpen(t *testing.T) {
 	assert.Equal(t, data["filename"], e.Filename)
 	assert.Equal(t, data["flags"], e.Flags)
 	assert.Equal(t, data["mode"], e.Mode)
+}
+
+func TestRegisterFileOpenEventFilter(t *testing.T) {
+	sensor := newUnitTestSensor(t)
+	defer sensor.Stop()
+
+	s := sensor.NewSubscription()
+	require.NotNil(t, s)
+
+	e := expression.Equal(expression.Identifier("foo"), expression.Value("bar"))
+	expr, err := expression.NewExpression(e)
+	require.NotNil(t, expr)
+	require.NoError(t, err)
+
+	format := `name: ^^NAME^^
+id: ^^ID^^
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
+
+	field:__data_loc char[] filename;	offset:16;	size:4;	signed:1;
+	field:s32 flags;	offset:20;	size:4;	signed:1;
+	field:s32 mode;	offset:24;	size:4;	signed:1;
+
+print fmt: "filename=\"%s\" flags=%d mode=%d", __get_str(filename), REC->flags, REC->mode`
+
+	newUnitTestKprobe(t, sensor, format)
+	s.RegisterFileOpenEventFilter(expr)
+	assert.Len(t, s.status, 1)
+	assert.Len(t, s.eventSinks, 0)
+
+	newUnitTestKprobe(t, sensor, format)
+	s.RegisterFileOpenEventFilter(nil)
+	assert.Len(t, s.eventSinks, 1)
 }

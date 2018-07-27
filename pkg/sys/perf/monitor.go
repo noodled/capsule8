@@ -698,9 +698,16 @@ func (monitor *EventMonitor) removeUprobe(name string) error {
 }
 
 func (monitor *EventMonitor) newProbeName() string {
+	probeName := monitor.NextProbeName()
 	monitor.nextProbeID++
+	return probeName
+}
+
+// NextProbeName is used primarily for unit testing. It returns the next probe
+// name that will be used by either RegisterKprobe or RegisterUprobe.
+func (monitor *EventMonitor) NextProbeName() string {
 	return fmt.Sprintf("capsule8/sensor_%d_%d", unix.Getpid(),
-		monitor.nextProbeID)
+		monitor.nextProbeID+1)
 }
 
 func (monitor *EventMonitor) newRegisteredEvent(
@@ -840,7 +847,7 @@ func (monitor *EventMonitor) newRegisteredTraceEvent(
 func (monitor *EventMonitor) RegisterExternalEvent(
 	name string,
 	decoderFn TraceEventDecoderFn,
-) (uint64, error) {
+) uint64 {
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
 
@@ -855,7 +862,7 @@ func (monitor *EventMonitor) RegisterExternalEvent(
 		nil,
 		false)
 
-	return eventid, nil
+	return eventid
 }
 
 // CounterEventGroupMember defines a counter event group member at registration
@@ -1416,13 +1423,6 @@ func (monitor *EventMonitor) EnqueueExternalSample(
 	sampleID SampleID,
 	decodedData TraceEventSampleData,
 ) error {
-	event, ok := monitor.events.lookup(eventID)
-	if !ok {
-		return fmt.Errorf("Invalid eventID %d", eventID)
-	}
-	if event.eventType != EventTypeExternal {
-		return fmt.Errorf("EventID %d is not an external type", eventID)
-	}
 	if sampleID.Time == 0 {
 		return fmt.Errorf("Invalid sample time (%d)", sampleID.Time)
 	}
@@ -1444,9 +1444,18 @@ func (monitor *EventMonitor) EnqueueExternalSample(
 	esm.RawSample.CPU = sampleID.CPU
 
 	monitor.lock.Lock()
+	defer monitor.lock.Unlock()
+
+	event, ok := monitor.events.lookup(eventID)
+	if !ok {
+		return fmt.Errorf("Invalid eventID %d", eventID)
+	}
+	if event.eventType != EventTypeExternal {
+		return fmt.Errorf("EventID %d is not an external type", eventID)
+	}
+
 	monitor.externalSamples = append(monitor.externalSamples, esm)
 	monitor.setNextExternalSampleTime(sampleID.Time)
-	monitor.lock.Unlock()
 
 	return nil
 }

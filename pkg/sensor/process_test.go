@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
@@ -104,5 +105,32 @@ func TestProcessDecoders(t *testing.T) {
 		for k, v := range tc.fieldChecks {
 			assert.Equal(t, data[k], value.FieldByName(v).Interface())
 		}
+	}
+}
+
+func TestProcessEventRegistration(t *testing.T) {
+	sensor := newUnitTestSensor(t)
+	defer sensor.Stop()
+
+	s := sensor.NewSubscription()
+
+	e := expression.Equal(expression.Identifier("foo"), expression.Value("bar"))
+	expr, err := expression.NewExpression(e)
+	require.NotNil(t, expr)
+	require.NoError(t, err)
+
+	funcs := []func(*expression.Expression){
+		s.RegisterProcessExecEventFilter,
+		s.RegisterProcessExitEventFilter,
+		s.RegisterProcessForkEventFilter,
+		s.RegisterProcessUpdateEventFilter,
+	}
+	for i, f := range funcs {
+		f(expr)
+		assert.Len(t, s.status, i+1)
+		assert.Len(t, s.eventSinks, i)
+
+		f(nil)
+		assert.Len(t, s.eventSinks, i+1)
 	}
 }

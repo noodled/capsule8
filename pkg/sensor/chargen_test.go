@@ -15,8 +15,11 @@
 package sensor
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
 	"github.com/stretchr/testify/assert"
@@ -64,4 +67,44 @@ func TestGenerateCharacters(t *testing.T) {
 		s := generateCharacters(tc.start, tc.length)
 		assert.Equal(t, tc.result, s)
 	}
+}
+
+func TestRegisterChargenEventFilter(t *testing.T) {
+	sensor := newUnitTestSensor(t)
+	defer sensor.Stop()
+
+	s := sensor.NewSubscription()
+	require.NotNil(t, s)
+
+	// Sanity check
+	assert.Len(t, s.status, 0)
+	assert.Len(t, s.eventSinks, 0)
+
+	// Invalid length should fail
+	s.RegisterChargenEventFilter(0, nil)
+	assert.Len(t, s.status, 1)
+	assert.Len(t, s.eventSinks, 0)
+
+	s.RegisterChargenEventFilter(1<<16+1, nil)
+	assert.Len(t, s.status, 2)
+	assert.Len(t, s.eventSinks, 0)
+
+	// Invalid filter expression should fail
+	e := expression.Equal(expression.Identifier("foo"), expression.Value("bar"))
+	expr, err := expression.NewExpression(e)
+	require.NotNil(t, expr)
+	require.NoError(t, err)
+
+	s.RegisterChargenEventFilter(32, expr)
+	assert.Len(t, s.status, 3)
+	assert.Len(t, s.eventSinks, 0)
+
+	// This should succeed
+	s.RegisterChargenEventFilter(32, nil)
+	assert.Len(t, s.eventSinks, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.Run(ctx, nil)
+	time.Sleep(200 * time.Millisecond)
+	cancel()
 }

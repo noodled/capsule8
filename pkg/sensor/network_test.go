@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/capsule8/capsule8/pkg/expression"
 	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 
@@ -201,7 +202,13 @@ func TestNetworkDecoders(t *testing.T) {
 	for x, tc := range testCases {
 		data["sa_family"] = families[x%len(families)]
 
+		data["common_pid"] = int32(sensorPID)
 		i, err := tc.decoder(sample, data)
+		assert.Nil(t, i)
+		assert.NoError(t, err)
+
+		delete(data, "common_pid")
+		i, err = tc.decoder(sample, data)
 		require.NotNil(t, i)
 		require.NoError(t, err)
 
@@ -229,5 +236,73 @@ func TestNetworkDecoders(t *testing.T) {
 				assert.Equal(t, data["sun_path"], value.FieldByName("UnixPath").Interface())
 			}
 		}
+	}
+}
+
+const networkKprobeFormat = `name: ^^NAME^^
+ID: ^^ID^^
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
+
+	field:int fd;	offset:8;	size:4;	signed:1;
+	field:u16 sa_family;	offset:12;	size:2;	signed:0;
+	field:u16 sin_port;	offset:14;	size:2;	signed:0;
+	field:u32 sin_addr;	offset:16;	size:4;	signed:0;
+	field:__data_loc char[] sun_path;	offset:20;	size:4;	signed:1;
+	field:u16 sin6_port;	offset:22;	size:2;	signed:0;
+	field:u64 sin6_addr_high;	offset:24;	size:8;	signed:0;
+	field:u64 sin6_addr_low;	offset:32;	size:8;	signed:0;
+
+print fmt: "fd=%d sa_family=%d sin_port=%d sin_addr=%d sun_path=\"%s\" sin6_port=%d sin6_addr_high=%d sin6_addr_low=%d", REC->fd, REC->sa_family, REC->sin_port, REC->sin_addr, __get_str(sun_path), REC->sin6_port, REC->sin6_addr_high, REC->sin6_addr_low`
+
+func TestNetworkEventRegistration(t *testing.T) {
+	sensor := newUnitTestSensor(t)
+	defer sensor.Stop()
+
+	s := sensor.NewSubscription()
+
+	e := expression.Equal(expression.Identifier("foo"), expression.Value("bar"))
+	expr, err := expression.NewExpression(e)
+	require.NotNil(t, expr)
+	require.NoError(t, err)
+
+	type testCase struct {
+		name    string
+		fn      func(*expression.Expression)
+		kprobes []string
+	}
+	testCases := []testCase{
+		testCase{"accept attempt", s.RegisterNetworkAcceptAttemptEventFilter, nil},
+		testCase{"accept result", s.RegisterNetworkAcceptResultEventFilter, nil},
+		testCase{"bind attempt", s.RegisterNetworkBindAttemptEventFilter, []string{networkKprobeFormat}},
+		testCase{"bind result", s.RegisterNetworkBindResultEventFilter, nil},
+		testCase{"connect attempt", s.RegisterNetworkConnectAttemptEventFilter, []string{networkKprobeFormat}},
+		testCase{"connect result", s.RegisterNetworkConnectResultEventFilter, nil},
+		testCase{"listen attempt", s.RegisterNetworkListenAttemptEventFilter, nil},
+		testCase{"listen result", s.RegisterNetworkListenResultEventFilter, nil},
+		testCase{"recvfrom attempt", s.RegisterNetworkRecvfromAttemptEventFilter, nil},
+		testCase{"recvfrom result", s.RegisterNetworkRecvfromResultEventFilter, nil},
+		testCase{"sendto attempt", s.RegisterNetworkSendtoAttemptEventFilter, []string{networkKprobeFormat, networkKprobeFormat}},
+		testCase{"sendto result", s.RegisterNetworkSendtoResultEventFilter, nil},
+	}
+	for _, tc := range testCases {
+		beforeStatus := len(s.status)
+		beforeEventSinks := len(s.eventSinks)
+
+		for _, f := range tc.kprobes {
+			newUnitTestKprobe(t, sensor, f)
+		}
+		tc.fn(expr)
+		assert.Condition(t, func() bool { return len(s.status) > beforeStatus }, tc.name)
+		assert.Len(t, s.eventSinks, beforeEventSinks, tc.name)
+
+		for _, f := range tc.kprobes {
+			newUnitTestKprobe(t, sensor, f)
+		}
+		tc.fn(nil)
+		assert.Condition(t, func() bool { return len(s.eventSinks) > beforeEventSinks }, tc.name, s.status)
 	}
 }

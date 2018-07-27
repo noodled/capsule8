@@ -176,7 +176,7 @@ const (
 	sysExecveAddress   = "sys_execve"
 	sysExecveArgs      = "filename=+0(%di):string "
 	sysExecveatAddress = "sys_execveat"
-	sysExecveatArgs    = "filename=%0(%si):string "
+	sysExecveatArgs    = "filename=+0(%si):string "
 
 	doExitAddress = "do_exit"
 	doExitArgs    = "code=%di:s64"
@@ -547,34 +547,21 @@ func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
 		cache.cache = newArrayTaskCache(maxPID)
 	}
 
-	var err error
-	cache.ProcessExecEventID, err = sensor.Monitor.RegisterExternalEvent(
+	cache.ProcessExecEventID = sensor.Monitor.RegisterExternalEvent(
 		"PROCESS_EXEC", cache.decodeProcessExecEvent)
-	if err != nil {
-		glog.Fatalf("Failed to register external event: %s", err)
-	}
 
-	cache.ProcessForkEventID, err = sensor.Monitor.RegisterExternalEvent(
+	cache.ProcessForkEventID = sensor.Monitor.RegisterExternalEvent(
 		"PROCESS_FORK", cache.decodeProcessForkEvent)
-	if err != nil {
-		glog.Fatalf("Failed to register external event: %s", err)
-	}
 
-	cache.ProcessExitEventID, err = sensor.Monitor.RegisterExternalEvent(
+	cache.ProcessExitEventID = sensor.Monitor.RegisterExternalEvent(
 		"PROCESS_EXIT", cache.decodeProcessExitEvent)
-	if err != nil {
-		glog.Fatalf("Failed to register external event: %s", err)
-	}
 
-	cache.ProcessUpdateEventID, err = sensor.Monitor.RegisterExternalEvent(
+	cache.ProcessUpdateEventID = sensor.Monitor.RegisterExternalEvent(
 		"PROCESS_UPDATE", cache.decodeProcessUpdateEvent)
-	if err != nil {
-		glog.Fatalf("Failed to register external event: %s", err)
-	}
 
 	// Register with the sensor's global event monitor...
 	eventName := "task/task_newtask"
-	_, err = sensor.Monitor.RegisterTracepoint(eventName,
+	_, err := sensor.Monitor.RegisterTracepoint(eventName,
 		cache.decodeNewTask,
 		perf.WithEventEnabled())
 	if err != nil {

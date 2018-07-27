@@ -15,16 +15,14 @@
 package sensor
 
 import (
-	"encoding/json"
-	"io/ioutil"
+	//"encoding/json"
+	//"io/ioutil"
 	"os"
-	"path/filepath"
-	"strings"
+	//"path/filepath"
+	//"strings"
 	"sync"
-
-	"github.com/capsule8/capsule8/pkg/sys/perf"
-
-	"github.com/golang/glog"
+	//"github.com/capsule8/capsule8/pkg/sys/perf"
+	//"github.com/golang/glog"
 )
 
 // The OCI Monitor watches for containers managed only by runc. Not much
@@ -78,6 +76,7 @@ type ociMonitor struct {
 	started    bool
 }
 
+/*
 func newOciMonitor(sensor *Sensor, containerDir string) *ociMonitor {
 	d, err := os.Open(containerDir)
 	if err != nil {
@@ -299,3 +298,5 @@ func (om *ociMonitor) decodeUnlink(
 
 	return nil, nil
 }
+
+*/

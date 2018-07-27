@@ -148,6 +148,45 @@ func (s *Subscription) initSyscallNames() {
 	}
 }
 
+func (s *Subscription) registerGlobalDummySyscallEvent() bool {
+	if atomic.AddInt64(&s.sensor.dummySyscallEventCount, 1) == 1 {
+		eventID, err := s.sensor.Monitor.RegisterTracepoint(
+			syscallEnterName, decodeDummySysEnter,
+			perf.WithEventGroup(0),
+			perf.WithFilter("id == 0x7fffffff"))
+		if err != nil {
+			s.logStatus(
+				fmt.Sprintf("Could not register dummy syscall event %s: %v",
+					syscallEnterName, err))
+			atomic.AddInt64(&s.sensor.dummySyscallEventCount, -1)
+			return false
+		}
+		s.sensor.dummySyscallEventID = eventID
+		return true
+	}
+	return true
+}
+
+func (s *Subscription) registerLocalDummySyscallEvent() bool {
+	var err error
+	if err = s.createEventGroup(); err != nil {
+		s.logStatus(
+			fmt.Sprintf("Could not create subscription event group: %v", err))
+		return false
+	}
+	_, err = s.sensor.Monitor.RegisterTracepoint(
+		syscallEnterName, decodeDummySysEnter,
+		perf.WithEventGroup(s.eventGroupID),
+		perf.WithFilter("id == 0x7fffffff"))
+	if err != nil {
+		s.logStatus(
+			fmt.Sprintf("Could not register dummy syscall event %s: %v",
+				syscallEnterName, err))
+		return false
+	}
+	return true
+}
+
 // RegisterSyscallEnterEventFilter registers a syscall enter event filter with
 // a subscription.
 func (s *Subscription) RegisterSyscallEnterEventFilter(
@@ -166,70 +205,42 @@ func (s *Subscription) RegisterSyscallEnterEventFilter(
 	// event groups, because we cannot remove it when we don't need
 	// it anymore due to bugs in CentOS 6.x kernels (2.6.32).
 	var (
-		err     error
-		eventID uint64
+		result     bool
+		unregister func(*eventSink)
 	)
-
-	major, _, _ := sys.KernelVersion()
-	if major < 3 {
-		if err = s.createEventGroup(); err != nil {
-			s.logStatus(
-				fmt.Sprintf("Could not create subscription event group: %v", err))
-			return
-		}
-		_, err = s.sensor.Monitor.RegisterTracepoint(
-			syscallEnterName, decodeDummySysEnter,
-			perf.WithEventGroup(s.eventGroupID),
-			perf.WithFilter("id == 0x7fffffff"))
-		if err != nil {
-			s.logStatus(
-				fmt.Sprintf("Could not register dummy syscall event %s: %v",
-					syscallEnterName, err))
-			return
-		}
-	} else if atomic.AddInt64(&s.sensor.dummySyscallEventCount, 1) == 1 {
-		eventID, err = s.sensor.Monitor.RegisterTracepoint(
-			syscallEnterName, decodeDummySysEnter,
-			perf.WithEventGroup(0),
-			perf.WithFilter("id == 0x7fffffff"))
-		if err != nil {
-			s.logStatus(
-				fmt.Sprintf("Could not register dummy syscall event %s: %v",
-					syscallEnterName, err))
-			atomic.AddInt64(&s.sensor.dummySyscallEventCount, -1)
-			return
-		}
-		s.sensor.dummySyscallEventID = eventID
-	}
-
-	// There are two possible kprobes. Newer kernels (>= 4.1) have
-	// refactored syscall entry code, so syscall_trace_enter_phase1
-	// is the right one, but for older kernels syscall_trace_enter
-	// is the right one. Both have the same signature, so the
-	// fetchargs doesn't have to change. Try the new probe first,
-	// because the old probe will also set in the newer kernels,
-	// but it won't fire.
-	kprobeSymbol := syscallNewEnterKprobeAddress
-	if !s.sensor.IsKernelSymbolAvailable(kprobeSymbol) {
-		kprobeSymbol = syscallOldEnterKprobeAddress
-	}
-
-	es, err := s.registerKprobe(kprobeSymbol, false,
-		syscallEnterKprobeFetchargs, s.decodeSyscallTraceEnter,
-		filter, SyscallEnterEventTypes)
-	if major >= 3 {
-		if err != nil {
-			eventID = s.sensor.dummySyscallEventID
+	if major, _, _ := sys.KernelVersion(); major < 3 {
+		result = s.registerLocalDummySyscallEvent()
+	} else {
+		result = s.registerGlobalDummySyscallEvent()
+		unregister = func(es *eventSink) {
+			eventID := s.sensor.dummySyscallEventID
 			if atomic.AddInt64(&s.sensor.dummySyscallEventCount, -1) == 0 {
 				s.sensor.Monitor.UnregisterEvent(eventID)
 			}
-		} else {
-			es.unregister = func(es *eventSink) {
-				eventID = s.sensor.dummySyscallEventID
-				if atomic.AddInt64(&s.sensor.dummySyscallEventCount, -1) == 0 {
-					s.sensor.Monitor.UnregisterEvent(eventID)
-				}
+		}
+	}
+	if result {
+		// There are two possible kprobes. Newer kernels (>= 4.1) have
+		// refactored syscall entry code, so syscall_trace_enter_phase1
+		// is the right one, but for older kernels syscall_trace_enter
+		// is the right one. Both have the same signature, so the
+		// fetchargs doesn't have to change. Try the new probe first,
+		// because the old probe will also set in the newer kernels,
+		// but it won't fire.
+		kprobeSymbol := syscallNewEnterKprobeAddress
+		if !s.sensor.IsKernelSymbolAvailable(kprobeSymbol) {
+			kprobeSymbol = syscallOldEnterKprobeAddress
+		}
+
+		es, err := s.registerKprobe(kprobeSymbol, false,
+			syscallEnterKprobeFetchargs, s.decodeSyscallTraceEnter,
+			filter, SyscallEnterEventTypes)
+		if err != nil {
+			if unregister != nil {
+				unregister(nil)
 			}
+		} else {
+			es.unregister = unregister
 		}
 	}
 }

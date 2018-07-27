@@ -791,8 +791,7 @@ func TestRegisterExternalEvent(t *testing.T) {
 	ok(t, err)
 	defer monitor.Close()
 
-	eventid, err := monitor.RegisterExternalEvent("dummy test", nil)
-	ok(t, err)
+	eventid := monitor.RegisterExternalEvent("dummy test", nil)
 	equals(t, 1, len(monitor.events.getMap()))
 	e, ok := monitor.events.lookup(eventid)
 	equals(t, true, ok)
@@ -936,11 +935,10 @@ func TestEnqueueExternalSample(t *testing.T) {
 	err = monitor.UnregisterEvent(eventid)
 	ok(t, err)
 
-	eventid, err = monitor.RegisterExternalEvent("external event",
+	eventid = monitor.RegisterExternalEvent("external event",
 		func(sample *SampleRecord, data TraceEventSampleData) (interface{}, error) {
 			return sample, nil
 		})
-	ok(t, err)
 
 	err = monitor.EnqueueExternalSample(eventid, SampleID{}, nil)
 	assert(t, err != nil, "expected non-nil for bad sample time")

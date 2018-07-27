@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/capsule8/capsule8/pkg/sys"
 	"github.com/capsule8/capsule8/pkg/sys/perf"
 	"github.com/capsule8/capsule8/pkg/sys/proc/procfs"
 
@@ -30,24 +31,23 @@ import (
 
 var kprobeFormats = []string{
 	`name: sensor_^^PID^^_1
-ID: 1562
+ID: 1618
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-	field:unsigned char common_preempt_count;	offset:3;	size:1; signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
 	field:int common_pid;	offset:4;	size:4;	signed:1;
 
 	field:unsigned long __probe_ip;	offset:8;	size:8;	signed:0;
 	field:s64 code;	offset:16;	size:8;	signed:1;
 
 print fmt: "(%lx) code=%Ld", REC->__probe_ip, REC->code`,
-
 	`name: sensor_^^PID^^_2
-ID: 1563
+ID: 1619
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
 	field:int common_pid;	offset:4;	size:4;	signed:1;
 
 	field:unsigned long __probe_ip;	offset:8;	size:8;	signed:0;
@@ -62,26 +62,24 @@ format:
 	field:u32 fsgid;	offset:52;	size:4;	signed:0;
 
 print fmt: "(%lx) usage=%Lu uid=%u gid=%u suid=%u sgid=%u euid=%u egid=%u fsuid=%u fsgid=%u", REC->__probe_ip, REC->usage, REC->uid, REC->gid, REC->suid, REC->sgid, REC->euid, REC->egid, REC->fsuid, REC->fsgid`,
-
 	`name: sensor_^^PID^^_3
-ID: 1564
+ID: 1620
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
 	field:int common_pid;	offset:4;	size:4;	signed:1;
 
 	field:unsigned long __probe_func;	offset:8;	size:8;	signed:0;
 	field:unsigned long __probe_ret_ip;	offset:16;	size:8;	signed:0;
 
 print fmt: "(%lx <- %lx)", REC->__probe_func, REC->__probe_ret_ip`,
-
 	`name: sensor_^^PID^^_4
-ID: 1565
+ID: 1621
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
 	field:int common_pid;	offset:4;	size:4;	signed:1;
 
 	field:unsigned long __probe_ip;	offset:8;	size:8;	signed:0;
@@ -94,13 +92,12 @@ format:
 	field:__data_loc char[] argv5;	offset:40;	size:4;	signed:1;
 
 print fmt: "(%lx) filename=\"%s\" argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(filename), __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
-
 	`name: sensor_^^PID^^_5
-ID: 1566
+ID: 1622
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
 	field:int common_pid;	offset:4;	size:4;	signed:1;
 
 	field:unsigned long __probe_ip;	offset:8;	size:8;	signed:0;
@@ -113,11 +110,43 @@ format:
 	field:__data_loc char[] argv5;	offset:40;	size:4;	signed:1;
 
 print fmt: "(%lx) filename=\"%s\" argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(filename), __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
+	`name: sensor_^^PID^^_6
+ID: 1623
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
 
-	"", // 6 is not used for some reason?
+	field:unsigned long __probe_ip;	offset:8;	size:8;	signed:0;
+	field:__data_loc char[] filename;	offset:16;	size:4;	signed:1;
+	field:__data_loc char[] argv0;	offset:20;	size:4;	signed:1;
+	field:__data_loc char[] argv1;	offset:24;	size:4;	signed:1;
+	field:__data_loc char[] argv2;	offset:28;	size:4;	signed:1;
+	field:__data_loc char[] argv3;	offset:32;	size:4;	signed:1;
+	field:__data_loc char[] argv4;	offset:36;	size:4;	signed:1;
+	field:__data_loc char[] argv5;	offset:40;	size:4;	signed:1;
 
+print fmt: "(%lx) filename=\"%s\" argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(filename), __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
 	`name: sensor_^^PID^^_7
-ID: 1567
+ID: 1624
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
+
+	field:unsigned long __probe_ip;	offset:8;	size:8;	signed:0;
+	field:__data_loc char[] argv0;	offset:16;	size:4;	signed:1;
+	field:__data_loc char[] argv1;	offset:20;	size:4;	signed:1;
+	field:__data_loc char[] argv2;	offset:24;	size:4;	signed:1;
+	field:__data_loc char[] argv3;	offset:28;	size:4;	signed:1;
+	field:__data_loc char[] argv4;	offset:32;	size:4;	signed:1;
+	field:__data_loc char[] argv5;	offset:36;	size:4;	signed:1;
+
+print fmt: "(%lx) argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
+	`name: sensor_^^PID^^_8
+ID: 1625
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
@@ -130,9 +159,8 @@ format:
 	field:s32 threadgroup;	offset:24;	size:4;	signed:1;
 
 print fmt: "(%lx) container_id=\"%s\" buf=\"%s\" threadgroup=%d", REC->__probe_ip, __get_str(container_id), __get_str(buf), REC->threadgroup`,
-
-	`name: sensor_^^PID^^_8
-ID: 1568
+	`name: sensor_^^PID^^_9
+ID: 1626
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
@@ -143,9 +171,8 @@ format:
 	field:__data_loc char[] newname;	offset:16;	size:4;	signed:1;
 
 print fmt: "(%lx) newname=\"%s\"", REC->__probe_ip, __get_str(newname)`,
-
-	`name: sensor_^^PID^^_9
-ID: 1569
+	`name: sensor_^^PID^^_10
+ID: 1627
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
 	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
@@ -166,6 +193,24 @@ func writeFile(t *testing.T, filename string, data []byte) {
 	require.NoError(t, err)
 }
 
+var nextProbeID uint64 = 8800
+
+func newUnitTestKprobe(t *testing.T, sensor *Sensor, format string) {
+	require.True(t, strings.HasPrefix(format, "name: ^^NAME^^"))
+
+	nextProbeName := sensor.Monitor.NextProbeName()
+	probeNameParts := strings.Split(nextProbeName, "/")
+	nextProbeID++
+
+	name := probeNameParts[1]
+	format = strings.Replace(format, "^^NAME^^", name, -1)
+	format = strings.Replace(format, "^^ID^^", fmt.Sprintf("%d", nextProbeID), -1)
+	filename := filepath.Join(sensor.tracingDir, "events", probeNameParts[0],
+		probeNameParts[1], "format")
+
+	writeFile(t, filename, ([]byte)(format))
+}
+
 func newUnitTestSensor(t *testing.T) *Sensor {
 	procFS, err := procfs.NewFileSystem("testdata")
 	require.NoError(t, err)
@@ -179,6 +224,10 @@ func newUnitTestSensor(t *testing.T) *Sensor {
 		}
 	}()
 
+	dockerDir := filepath.Join(runtimeDir, "docker")
+	err = os.MkdirAll(dockerDir, 0777)
+	require.NoError(t, err)
+
 	tracingDir := filepath.Join(runtimeDir, "tracing")
 	err = os.MkdirAll(tracingDir, 0777)
 	require.NoError(t, err)
@@ -186,33 +235,38 @@ func newUnitTestSensor(t *testing.T) *Sensor {
 	kprobeEvents := filepath.Join(tracingDir, "kprobe_events")
 	writeFile(t, kprobeEvents, []byte{})
 
-	format := ([]byte)(`name: task_newtask
-ID: 109
-format:
-	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
-	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-	field:unsigned char common_preempt_count;	offset:3;	size:1;signed:0;
-	field:int common_pid;	offset:4;	size:4;	signed:1;
+	sourceDir := filepath.Join("testdata", "events")
+	err = filepath.Walk(sourceDir,
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
 
-	field:pid_t pid;	offset:8;	size:4;	signed:1;
-	field:char comm[16];	offset:12;	size:16;	signed:1;
-	field:unsigned long clone_flags;	offset:32;	size:8;	signed:0;
-	field:short oom_score_adj;	offset:40;	size:2;	signed:1;
+			sourceFilename := path
+			targetFilename := filepath.Join(tracingDir, "events", path[len(sourceDir)+1:])
+			if err = os.MkdirAll(filepath.Dir(targetFilename), 0777); err != nil {
+				return err
+			}
 
-print fmt: "pid=%d comm=%s clone_flags=%lx oom_score_adj=%hd", REC->pid, REC->comm, REC->clone_flags, REC->oom_score_adj`)
-	filename := filepath.Join(tracingDir, "events", "task", "task_newtask", "format")
-	writeFile(t, filename, format)
+			data, err := ioutil.ReadFile(sourceFilename)
+			if err == nil {
+				writeFile(t, targetFilename, data)
+			}
+			return err
+		})
+	require.NoError(t, err)
 
 	pidString := fmt.Sprintf("%d", os.Getpid())
 	for i, format := range kprobeFormats {
 		format = strings.Replace(format, "^^PID^^", pidString, -1)
-		filename = filepath.Join(tracingDir, "events", "capsule8",
+		filename := filepath.Join(tracingDir, "events", "capsule8",
 			fmt.Sprintf("sensor_%d_%d", os.Getpid(), i+1), "format")
 		writeFile(t, filename, ([]byte)(filename))
 	}
 
 	sensor, err := NewSensor(
 		WithRuntimeDir(runtimeDir),
+		WithDockerContainerDir(dockerDir),
 		WithProcFileSystem(procFS),
 		WithEventSourceController(perf.NewStubEventSourceController()),
 		WithTracingDir(tracingDir),
@@ -221,6 +275,20 @@ print fmt: "pid=%d comm=%s clone_flags=%lx oom_score_adj=%hd", REC->pid, REC->co
 
 	err = sensor.Start()
 	require.NoError(t, err)
+
+	// Set sensorPID to 8888 so that PID 8888 is considered to be the
+	// sensor. Also, create a task for that pid so that it always exists.
+	sensorPID = 8888
+	task := sensor.ProcessCache.LookupTask(sensorPID)
+	changes := map[string]interface{}{
+		"TGID":        int(8888),
+		"Command":     "sensor",
+		"CommandLine": []string{"sensor"},
+		"StartTime":   sys.CurrentMonotonicRaw(),
+		"ProcessID":   "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+		"CWD":         "/var/run/capsule8",
+	}
+	task.Update(changes, uint64(sys.CurrentMonotonicRaw()), sensor.ProcFS)
 
 	return sensor
 }

@@ -15,6 +15,7 @@
 package perf
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -113,7 +114,9 @@ func newStubEventSourceLeader(attr EventAttr, pid, cpu int) *StubEventSourceLead
 func (s *StubEventSourceLeader) Close() error {
 	var err error
 	if err = s.StubEventSource.Close(); err == nil && s.controller != nil {
+		s.controller.lock.Lock()
 		delete(s.controller.activeLeaders, s.sourceID)
+		s.controller.lock.Unlock()
 	}
 	return err
 }
@@ -133,15 +136,24 @@ func (s *StubEventSourceLeader) Read(
 	attrMap map[uint64]EventAttr,
 	f func(Sample, error),
 ) {
-	for _, s := range s.queue {
-		f(s.sample, s.err)
+	s.controller.lock.Lock()
+	for s.queue != nil {
+		queue := s.queue
+		s.queue = nil
+		s.controller.lock.Unlock()
+		for _, s := range queue {
+			f(s.sample, s.err)
+		}
+		s.controller.lock.Lock()
 	}
-	s.queue = nil
+	s.controller.lock.Unlock()
 }
 
 // EnqueueSample enqueues a sample and/or error to be retrived via Read.
 func (s *StubEventSourceLeader) EnqueueSample(sample Sample, err error) {
+	s.controller.lock.Lock()
 	s.queue = append(s.queue, stubSample{sample, err})
+	s.controller.lock.Unlock()
 }
 
 // StubEventSourceController is a stub implementation of EventSourceController
@@ -150,6 +162,7 @@ type StubEventSourceController struct {
 	setTimeoutAtChannel chan int64
 	wakeupChannel       chan bool
 
+	lock          sync.RWMutex
 	activeLeaders map[uint64]*StubEventSourceLeader
 }
 
@@ -181,11 +194,16 @@ func (c *StubEventSourceController) NewEventSourceLeader(
 ) (EventSourceLeader, error) {
 	l := newStubEventSourceLeader(attr, pid, cpu)
 	l.controller = c
+	c.lock.Lock()
 	c.activeLeaders[l.sourceID] = l
+	c.lock.Unlock()
 	return l, nil
 }
 
 func (c *StubEventSourceController) hasPendingSamples() bool {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
 	for _, l := range c.activeLeaders {
 		if len(l.queue) > 0 {
 			return true

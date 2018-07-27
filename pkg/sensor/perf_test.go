@@ -64,3 +64,25 @@ func TestDecodePerfCounterEvent(t *testing.T) {
 	assert.Equal(t, uint64(2340978), e.TotalTimeRunning)
 	assert.Equal(t, counters, e.Counters)
 }
+
+func TestRegisterPerformanceEventFilter(t *testing.T) {
+	sensor := newUnitTestSensor(t)
+	defer sensor.Stop()
+
+	s := sensor.NewSubscription()
+	require.NotNil(t, s)
+
+	attr := perf.EventAttr{}
+	s.RegisterPerformanceEventFilter(attr, nil)
+	assert.Len(t, s.status, 1)
+	assert.Len(t, s.eventSinks, 0)
+
+	counters := []perf.CounterEventGroupMember{
+		perf.CounterEventGroupMember{
+			EventType: perf.EventTypeHardware,
+			Config:    983745,
+		},
+	}
+	s.RegisterPerformanceEventFilter(attr, counters)
+	assert.Len(t, s.eventSinks, 1)
+}

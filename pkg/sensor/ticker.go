@@ -70,13 +70,8 @@ func (s *Subscription) RegisterTickerEventFilter(
 		return
 	}
 
-	eventID, err := s.sensor.Monitor.RegisterExternalEvent("ticker",
+	eventID := s.sensor.Monitor.RegisterExternalEvent("ticker",
 		s.decodeTickerEvent)
-	if err != nil {
-		s.logStatus(
-			fmt.Sprintf("Could not register ticker event: %v", err))
-		return
-	}
 
 	done := make(chan struct{})
 
@@ -93,6 +88,7 @@ func (s *Subscription) RegisterTickerEventFilter(
 	}
 
 	go func() {
+		monitor := s.sensor.Monitor
 		ticker := time.NewTicker(time.Duration(interval))
 		for {
 			select {
@@ -109,8 +105,9 @@ func (s *Subscription) RegisterTickerEventFilter(
 					"seconds":     int64(now.Unix()),
 					"nanoseconds": int64(now.UnixNano()),
 				}
-				s.sensor.Monitor.EnqueueExternalSample(
+				monitor.EnqueueExternalSample(
 					eventID, sampleID, data)
+
 			}
 		}
 	}()

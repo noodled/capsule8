@@ -1,0 +1,17 @@
+name: sys_enter_recvfrom
+ID: 1151
+format:
+	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+	field:int common_pid;	offset:4;	size:4;	signed:1;
+
+	field:int __syscall_nr;	offset:8;	size:4;	signed:1;
+	field:int fd;	offset:16;	size:8;	signed:0;
+	field:void * ubuf;	offset:24;	size:8;	signed:0;
+	field:size_t size;	offset:32;	size:8;	signed:0;
+	field:unsigned int flags;	offset:40;	size:8;	signed:0;
+	field:struct sockaddr * addr;	offset:48;	size:8;	signed:0;
+	field:int * addr_len;	offset:56;	size:8;	signed:0;
+
+print fmt: "fd: 0x%08lx, ubuf: 0x%08lx, size: 0x%08lx, flags: 0x%08lx, addr: 0x%08lx, addr_len: 0x%08lx", ((unsigned long)(REC->fd)), ((unsigned long)(REC->ubuf)), ((unsigned long)(REC->size)), ((unsigned long)(REC->flags)), ((unsigned long)(REC->addr)), ((unsigned long)(REC->addr_len))
