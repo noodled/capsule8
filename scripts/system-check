@@ -145,12 +145,12 @@ function lookup_kernel_symbol () {
             continue
         fi
         local sym="`echo ${line} | cut -d ' ' -f 3`"
-        if [ "${sym}" = "$1" ]; then
+        if [ "${sym}" = "$1" ] || [ "${sym}" = "__x64_$1" ]; then
             result="${sym}"
             break
         fi
         local sym2="`echo ${sym} | cut -d '.' -f 1`"
-        if [ "${sym2}" = "$1" ]; then
+        if [ "${sym2}" = "$1" ] || [ "${sym2}" = "__x64_$1" ]; then
             result="${sym}"
             break
         fi

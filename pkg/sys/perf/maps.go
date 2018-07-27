@@ -108,10 +108,10 @@ func (m *safeUInt64Map) update(mfrom uint64Map) {
 
 //
 // safeEventAttrMap
-// map[uint64]*EventAttr
+// map[uint64]EventAttr
 //
 
-type eventAttrMap map[uint64]*EventAttr
+type eventAttrMap map[uint64]EventAttr
 
 func newEventAttrMap() eventAttrMap {
 	return make(eventAttrMap)
@@ -284,10 +284,10 @@ func (m *safeRegisteredEventMap) remove(eventID uint64) {
 
 //
 // safePerfGroupLeaderMap
-// map[int]*perfGroupLeader
+// map[uint64]*perfGroupLeader
 //
 
-type perfGroupLeaderMap map[int]*perfGroupLeader
+type perfGroupLeaderMap map[uint64]*perfGroupLeader
 
 func newPerfGroupLeaderMap() perfGroupLeaderMap {
 	return make(perfGroupLeaderMap)
@@ -310,25 +310,25 @@ func (m *safePerfGroupLeaderMap) getMap() perfGroupLeaderMap {
 	return value.(perfGroupLeaderMap)
 }
 
-func (m *safePerfGroupLeaderMap) lookup(fd int) (*perfGroupLeader, bool) {
+func (m *safePerfGroupLeaderMap) lookup(id uint64) (*perfGroupLeader, bool) {
 	t := m.getMap()
 	if t == nil {
 		return nil, false
 	}
-	pgl, ok := t[fd]
+	pgl, ok := t[id]
 	return pgl, ok
 }
 
-func (m *safePerfGroupLeaderMap) removeInPlace(fds map[int]bool) {
+func (m *safePerfGroupLeaderMap) removeInPlace(ids map[uint64]struct{}) {
 	nm := m.getMap()
 	if nm != nil {
-		for fd := range fds {
-			delete(nm, fd)
+		for id := range ids {
+			delete(nm, id)
 		}
 	}
 }
 
-func (m *safePerfGroupLeaderMap) remove(fds map[int]bool) {
+func (m *safePerfGroupLeaderMap) remove(ids map[uint64]struct{}) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -336,7 +336,7 @@ func (m *safePerfGroupLeaderMap) remove(fds map[int]bool) {
 	nm := newPerfGroupLeaderMap()
 	if om != nil {
 		for k, v := range om {
-			if _, ok := fds[k]; !ok {
+			if _, ok := ids[k]; !ok {
 				nm[k] = v
 			}
 		}
@@ -351,7 +351,7 @@ func (m *safePerfGroupLeaderMap) updateInPlace(leaders []*perfGroupLeader) {
 		m.active.Store(nm)
 	}
 	for _, pgl := range leaders {
-		nm[pgl.fd] = pgl
+		nm[pgl.source.SourceID()] = pgl
 	}
 }
 
@@ -367,7 +367,7 @@ func (m *safePerfGroupLeaderMap) update(leaders []*perfGroupLeader) {
 		}
 	}
 	for _, pgl := range leaders {
-		nm[pgl.fd] = pgl
+		nm[pgl.source.SourceID()] = pgl
 	}
 	m.active.Store(nm)
 }

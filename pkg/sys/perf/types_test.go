@@ -834,11 +834,11 @@ func TestSampleIDRead(t *testing.T) {
 }
 
 func TestSampleResolveEventAttr(t *testing.T) {
-	expectedEventAttr := &EventAttr{
+	expectedEventAttr := EventAttr{
 		SampleType:  PERF_SAMPLE_IDENTIFIER, // must be set
 		SampleIDAll: true,                   // must be set
 	}
-	formatMap := map[uint64]*EventAttr{
+	formatMap := map[uint64]EventAttr{
 		768435: expectedEventAttr,
 	}
 	expectedSampleID := uint64(768435)
@@ -851,16 +851,16 @@ func TestSampleResolveEventAttr(t *testing.T) {
 	ok(t, err)
 	readBuffer := bytes.NewReader(writeBuffer.Bytes())
 	actualSampleID, actualEventAttr :=
-		sample.resolveEventAttr(readBuffer, 0, expectedEventAttr, nil)
+		sample.resolveEventAttr(readBuffer, 0, &expectedEventAttr, nil)
 	equals(t, expectedSampleID, actualSampleID)
-	equals(t, expectedEventAttr, actualEventAttr)
+	equals(t, expectedEventAttr, *actualEventAttr)
 
 	// 2. eventAttr is nil, sampleID is in formatMap for PERF_RECORD_SAMPLE
 	readBuffer.Seek(0, os.SEEK_SET)
 	actualSampleID, actualEventAttr =
 		sample.resolveEventAttr(readBuffer, 0, nil, formatMap)
 	equals(t, expectedSampleID, actualSampleID)
-	equals(t, expectedEventAttr, actualEventAttr)
+	equals(t, expectedEventAttr, *actualEventAttr)
 
 	// 3. eventAttr is supplied non-nil for !PERF_RECORD_SAMPLE
 	sample = Sample{}
@@ -875,19 +875,19 @@ func TestSampleResolveEventAttr(t *testing.T) {
 	ok(t, err)
 	readBuffer = bytes.NewReader(writeBuffer.Bytes())
 	actualSampleID, actualEventAttr =
-		sample.resolveEventAttr(readBuffer, 0, expectedEventAttr, nil)
+		sample.resolveEventAttr(readBuffer, 0, &expectedEventAttr, nil)
 
 	// 4. eventAttr is nil, sampleID is in formatMap for !PERF_RECORD_SAMPLE
 	readBuffer.Seek(0, os.SEEK_SET)
 	actualSampleID, actualEventAttr =
 		sample.resolveEventAttr(readBuffer, 0, nil, formatMap)
 	equals(t, expectedSampleID, actualSampleID)
-	equals(t, expectedEventAttr, actualEventAttr)
+	equals(t, expectedEventAttr, *actualEventAttr)
 }
 
 func makeNonSampleRecord(
 	t *testing.T,
-	attr *EventAttr,
+	attr EventAttr,
 	typ uint32,
 	i interface{},
 	nbytes uint16,
@@ -915,26 +915,26 @@ func makeNonSampleRecord(
 
 func makeSampleRecord(
 	t *testing.T,
-	attr *EventAttr,
+	attr EventAttr,
 	sr SampleRecord,
 ) io.ReadSeeker {
 	writeBuffer := &bytes.Buffer{}
 	eh := eventHeader{PERF_RECORD_SAMPLE, 0, 48}
 	err := binary.Write(writeBuffer, binary.LittleEndian, eh)
 	ok(t, err)
-	sr.write(t, writeBuffer, *attr)
+	sr.write(t, writeBuffer, attr)
 
 	return bytes.NewReader(writeBuffer.Bytes())
 }
 
 func TestSampleRead(t *testing.T) {
-	attr := &EventAttr{
+	attr := EventAttr{
 		SampleType: PERF_SAMPLE_TID | PERF_SAMPLE_TIME |
 			PERF_SAMPLE_ID | PERF_SAMPLE_STREAM_ID |
 			PERF_SAMPLE_CPU | PERF_SAMPLE_IDENTIFIER,
 		SampleIDAll: true,
 	}
-	formatMap := map[uint64]*EventAttr{
+	formatMap := map[uint64]EventAttr{
 		123: attr,
 	}
 
@@ -1011,7 +1011,7 @@ func TestSampleRead(t *testing.T) {
 		CPU:      6,
 	}
 	r = makeSampleRecord(t, attr, sr)
-	err = sample.read(r, attr, nil)
+	err = sample.read(r, &attr, nil)
 	ok(t, err)
 	equals(t, &sr, sample.Record)
 
@@ -1019,6 +1019,6 @@ func TestSampleRead(t *testing.T) {
 	junk := []byte{1, 2, 3, 4, 5, 6, 7, 23, 4, 6}
 	r = makeNonSampleRecord(t, attr, 283746, junk, uint16(len(junk)))
 	sample = Sample{}
-	err = sample.read(r, attr, formatMap)
+	err = sample.read(r, &attr, formatMap)
 	ok(t, err)
 }

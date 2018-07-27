@@ -144,6 +144,13 @@ func (dm *decoderMap) add(name string, id uint16, decoder *traceEventDecoder) {
 	dm.names[name] = id
 }
 
+func (dm *decoderMap) Len() int {
+	if dm == nil {
+		return 0
+	}
+	return len(dm.decoders)
+}
+
 type traceEventDecoderMap struct {
 	sync.Mutex              // used only by writers
 	active     atomic.Value // *decoderMap
@@ -270,18 +277,20 @@ func (m *traceEventDecoderMap) getDecoder(eventType uint16) *traceEventDecoder {
 }
 
 func (m *traceEventDecoderMap) DecodeSample(sample *SampleRecord) (TraceEventSampleData, interface{}, error) {
-	eventType := uint16(binary.LittleEndian.Uint64(sample.RawData))
+	eventType := binary.LittleEndian.Uint16(sample.RawData)
 	decoder := m.getDecoder(eventType)
 	if decoder == nil {
 		// Not an error. There just isn't a decoder for this sample
 		return nil, nil, nil
 	}
 
-	data, err := decoder.decodeRawData(sample.RawData)
-	if err != nil {
-		return nil, nil, err
+	var (
+		data          TraceEventSampleData
+		decodedSample interface{}
+		err           error
+	)
+	if data, err = decoder.decodeRawData(sample.RawData); err == nil {
+		decodedSample, err = decoder.decoderfn(sample, data)
 	}
-
-	decodedSample, err := decoder.decoderfn(sample, data)
 	return data, decodedSample, err
 }
