@@ -16,6 +16,7 @@ package sensor
 
 import (
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -109,6 +110,7 @@ func newDockerMonitor(sensor *Sensor, containerDir string) *dockerMonitor {
 	_, err = sensor.RegisterKprobe(dockerRenameKprobeSymbol, false,
 		dockerRenameKprobeFetchargs, dm.decodeRename,
 		perf.WithFilter(dockerRenameKprobeFilter),
+		perf.WithTracingEventName("docker1"),
 		perf.WithEventEnabled())
 	if err != nil {
 		glog.Fatalf("Could not register Docker monitor %s kprobe: %s",
@@ -118,6 +120,7 @@ func newDockerMonitor(sensor *Sensor, containerDir string) *dockerMonitor {
 	_, err = sensor.RegisterKprobe(dockerUnlinkKprobeSymbol, false,
 		dockerUnlinkKprobeFetchargs, dm.decodeUnlink,
 		perf.WithFilter(dockerUnlinkKprobeFilter),
+		perf.WithTracingEventName("docker2"),
 		perf.WithEventEnabled())
 	if err != nil {
 		glog.Fatalf("Could not register Docker monitor %s kprobe: %s",
@@ -145,9 +148,14 @@ func (dm *dockerMonitor) start() {
 		}
 		for _, name := range names {
 			configFilename := filepath.Join(dm.containerDir, name, "config.v2.json")
-			err = dm.processDockerConfig(perf.SampleID{}, configFilename)
+			var configFile *os.File
+			configFile, err = os.Open(configFilename)
 			if err == nil {
-				glog.V(2).Infof("{DOCKER} Found existing container %s", name)
+				err = dm.processDockerConfig(perf.SampleID{}, configFilename, configFile)
+				configFile.Close()
+				if err == nil {
+					glog.V(2).Infof("{DOCKER} Found existing container %s", name)
+				}
 			}
 		}
 	}
@@ -169,8 +177,9 @@ func (dm *dockerMonitor) start() {
 func (dm *dockerMonitor) processDockerConfig(
 	sampleID perf.SampleID,
 	configFilename string,
+	configFile io.Reader,
 ) error {
-	configJSON, err := ioutil.ReadFile(configFilename)
+	configJSON, err := ioutil.ReadAll(configFile)
 	if err != nil {
 		return err
 	}
@@ -246,7 +255,8 @@ func (dm *dockerMonitor) decodeRename(
 	data perf.TraceEventSampleData,
 ) (interface{}, error) {
 	configFilename := data["newname"].(string)
-	if !strings.HasPrefix(configFilename, dm.containerDir) {
+	if !strings.HasPrefix(configFilename, dm.containerDir) ||
+		!strings.HasSuffix(configFilename, "/config.v2.json") {
 		return nil, nil
 	}
 
@@ -257,9 +267,13 @@ func (dm *dockerMonitor) decodeRename(
 		CPU:  sample.CPU,
 	}
 
-	dm.maybeDeferAction(func() {
-		dm.processDockerConfig(sampleID, configFilename)
-	})
+	configFile, err := os.Open(configFilename)
+	if err == nil {
+		dm.maybeDeferAction(func() {
+			dm.processDockerConfig(sampleID, configFilename, configFile)
+			configFile.Close()
+		})
+	}
 
 	return nil, nil
 }

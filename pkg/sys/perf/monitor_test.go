@@ -708,8 +708,9 @@ print fmt: "pid=%d comm=%s clone_flags=%lx oom_score_adj=%hd", REC->pid, REC->co
 	err = ioutil.WriteFile(formatFile, []byte(formatContent), 0666)
 	ok(t, err)
 
-	for x := 1; x <= 2; x++ {
-		probeName := fmt.Sprintf("capsule8/sensor_%d_%d", unix.Getpid(), x)
+	names := []string{"1", "2", "foo"}
+	for _, name := range names {
+		probeName := fmt.Sprintf("capsule8/sensor_%d_%s", unix.Getpid(), name)
 		eventDir = filepath.Join(tracingDir, "events", probeName)
 		err = os.MkdirAll(eventDir, 0777)
 		ok(t, err)
@@ -763,8 +764,35 @@ print fmt: "pid=%d comm=%s clone_flags=%lx oom_score_adj=%hd", REC->pid, REC->co
 	ok(t, err)
 	equals(t, 0, len(monitor.events.getMap()))
 
+	eventid, err = monitor.RegisterKprobe("address", false, "output", nil,
+		WithTracingEventName("foo"))
+	ok(t, err)
+	equals(t, 1, len(monitor.events.getMap()))
+	e, found = monitor.events.lookup(eventid)
+	equals(t, true, found)
+	equals(t, eventid, e.id)
+	equals(t, EventTypeKprobe, e.eventType)
+
+	err = monitor.UnregisterEvent(eventid)
+	ok(t, err)
+	equals(t, 0, len(monitor.events.getMap()))
+
 	eventid, err = monitor.RegisterUprobe("testdata/uprobe_test",
 		"some_function", false, "string=+0(%di):string", nil)
+	ok(t, err)
+	equals(t, 1, len(monitor.events.getMap()))
+	e, found = monitor.events.lookup(eventid)
+	equals(t, true, found)
+	equals(t, eventid, e.id)
+	equals(t, EventTypeUprobe, e.eventType)
+
+	err = monitor.UnregisterEvent(eventid)
+	ok(t, err)
+	equals(t, 0, len(monitor.events.getMap()))
+
+	eventid, err = monitor.RegisterUprobe("testdata/uprobe_test",
+		"some_function", false, "string=+0(%di):string", nil,
+		WithTracingEventName("foo"))
 	ok(t, err)
 	equals(t, 1, len(monitor.events.getMap()))
 	e, found = monitor.events.lookup(eventid)

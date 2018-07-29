@@ -166,6 +166,7 @@ type registerEventOptions struct {
 	filter    string
 	groupID   int32
 	decoderFn TraceEventDecoderFn
+	name      string
 }
 
 // RegisterEventOption is used to implement optional arguments for event
@@ -220,6 +221,14 @@ func WithFilter(filter string) RegisterEventOption {
 func WithEventGroup(groupID int32) RegisterEventOption {
 	return func(o *registerEventOptions) {
 		o.groupID = groupID
+	}
+}
+
+// WithTracingEventName is used to specify the name of a kprobe or uprobe to
+// use for registration instead of an automatically generated one.
+func WithTracingEventName(name string) RegisterEventOption {
+	return func(o *registerEventOptions) {
+		o.name = name
 	}
 }
 
@@ -1001,7 +1010,13 @@ func (monitor *EventMonitor) RegisterKprobe(
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
 
-	name := monitor.newProbeName()
+	var name string
+	if opts.name == "" {
+		name = monitor.newProbeName()
+	} else {
+		name = fmt.Sprintf("capsule8/sensor_%d_%s",
+			os.Getpid(), opts.name)
+	}
 	err := monitor.addKprobe(name, address, onReturn, output)
 	if err != nil {
 		return 0, err
@@ -1046,7 +1061,13 @@ func (monitor *EventMonitor) RegisterUprobe(
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
 
-	name := monitor.newProbeName()
+	var name string
+	if opts.name == "" {
+		name = monitor.newProbeName()
+	} else {
+		name = fmt.Sprintf("capsule8/sensor_%d_%s",
+			os.Getpid(), opts.name)
+	}
 	err := monitor.addUprobe(name, bin, address, onReturn, output)
 	if err != nil {
 		return 0, err
@@ -1446,6 +1467,10 @@ func (monitor *EventMonitor) EnqueueExternalSample(
 	monitor.lock.Lock()
 	defer monitor.lock.Unlock()
 
+	if monitor.events == nil {
+		// This is an enqueue after Stop runs
+		return nil
+	}
 	event, ok := monitor.events.lookup(eventID)
 	if !ok {
 		return fmt.Errorf("Invalid eventID %d", eventID)

@@ -29,8 +29,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var kprobeFormats = []string{
-	`name: sensor_^^PID^^_1
+var kprobeFormats = map[string]string{
+	"1": `name: sensor_^^PID^^_1
 ID: 1618
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -42,7 +42,7 @@ format:
 	field:s64 code;	offset:16;	size:8;	signed:1;
 
 print fmt: "(%lx) code=%Ld", REC->__probe_ip, REC->code`,
-	`name: sensor_^^PID^^_2
+	"2": `name: sensor_^^PID^^_2
 ID: 1619
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -62,7 +62,7 @@ format:
 	field:u32 fsgid;	offset:52;	size:4;	signed:0;
 
 print fmt: "(%lx) usage=%Lu uid=%u gid=%u suid=%u sgid=%u euid=%u egid=%u fsuid=%u fsgid=%u", REC->__probe_ip, REC->usage, REC->uid, REC->gid, REC->suid, REC->sgid, REC->euid, REC->egid, REC->fsuid, REC->fsgid`,
-	`name: sensor_^^PID^^_3
+	"3": `name: sensor_^^PID^^_3
 ID: 1620
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -74,7 +74,7 @@ format:
 	field:unsigned long __probe_ret_ip;	offset:16;	size:8;	signed:0;
 
 print fmt: "(%lx <- %lx)", REC->__probe_func, REC->__probe_ret_ip`,
-	`name: sensor_^^PID^^_4
+	"4": `name: sensor_^^PID^^_4
 ID: 1621
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -92,7 +92,7 @@ format:
 	field:__data_loc char[] argv5;	offset:40;	size:4;	signed:1;
 
 print fmt: "(%lx) filename=\"%s\" argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(filename), __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
-	`name: sensor_^^PID^^_5
+	"5": `name: sensor_^^PID^^_5
 ID: 1622
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -110,7 +110,7 @@ format:
 	field:__data_loc char[] argv5;	offset:40;	size:4;	signed:1;
 
 print fmt: "(%lx) filename=\"%s\" argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(filename), __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
-	`name: sensor_^^PID^^_6
+	"6": `name: sensor_^^PID^^_6
 ID: 1623
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -128,7 +128,7 @@ format:
 	field:__data_loc char[] argv5;	offset:40;	size:4;	signed:1;
 
 print fmt: "(%lx) filename=\"%s\" argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(filename), __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
-	`name: sensor_^^PID^^_7
+	"7": `name: sensor_^^PID^^_7
 ID: 1624
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -145,7 +145,7 @@ format:
 	field:__data_loc char[] argv5;	offset:36;	size:4;	signed:1;
 
 print fmt: "(%lx) argv0=\"%s\" argv1=\"%s\" argv2=\"%s\" argv3=\"%s\" argv4=\"%s\" argv5=\"%s\"", REC->__probe_ip, __get_str(argv0), __get_str(argv1), __get_str(argv2), __get_str(argv3), __get_str(argv4), __get_str(argv5)`,
-	`name: sensor_^^PID^^_8
+	"8": `name: sensor_^^PID^^_8
 ID: 1625
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -159,7 +159,7 @@ format:
 	field:s32 threadgroup;	offset:24;	size:4;	signed:1;
 
 print fmt: "(%lx) container_id=\"%s\" buf=\"%s\" threadgroup=%d", REC->__probe_ip, __get_str(container_id), __get_str(buf), REC->threadgroup`,
-	`name: sensor_^^PID^^_9
+	"docker1": `name: sensor_^^PID^^_docker1
 ID: 1626
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -171,7 +171,7 @@ format:
 	field:__data_loc char[] newname;	offset:16;	size:4;	signed:1;
 
 print fmt: "(%lx) newname=\"%s\"", REC->__probe_ip, __get_str(newname)`,
-	`name: sensor_^^PID^^_10
+	"docker2": `name: sensor_^^PID^^_docker2
 ID: 1627
 format:
 	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
@@ -211,6 +211,29 @@ func newUnitTestKprobe(t *testing.T, sensor *Sensor, format string) {
 	writeFile(t, filename, ([]byte)(format))
 }
 
+func recursiveCopy(t *testing.T, sourceDir, targetDir string) {
+	err := filepath.Walk(sourceDir,
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			sourceFilename := path
+			targetFilename := filepath.Join(targetDir, path[len(sourceDir):])
+			if info.IsDir() {
+				err = os.MkdirAll(targetFilename, 0777)
+			} else {
+				var data []byte
+				data, err = ioutil.ReadFile(sourceFilename)
+				if err == nil {
+					writeFile(t, targetFilename, data)
+				}
+			}
+			return err
+		})
+	require.NoError(t, err)
+}
+
 func newUnitTestSensor(t *testing.T) *Sensor {
 	procFS, err := procfs.NewFileSystem("testdata")
 	require.NoError(t, err)
@@ -236,31 +259,17 @@ func newUnitTestSensor(t *testing.T) *Sensor {
 	writeFile(t, kprobeEvents, []byte{})
 
 	sourceDir := filepath.Join("testdata", "events")
-	err = filepath.Walk(sourceDir,
-		func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return err
-			}
+	targetDir := filepath.Join(tracingDir, "events")
+	recursiveCopy(t, sourceDir, targetDir)
 
-			sourceFilename := path
-			targetFilename := filepath.Join(tracingDir, "events", path[len(sourceDir)+1:])
-			if err = os.MkdirAll(filepath.Dir(targetFilename), 0777); err != nil {
-				return err
-			}
-
-			data, err := ioutil.ReadFile(sourceFilename)
-			if err == nil {
-				writeFile(t, targetFilename, data)
-			}
-			return err
-		})
-	require.NoError(t, err)
+	sourceDir = filepath.Join("testdata", "docker")
+	recursiveCopy(t, sourceDir, dockerDir)
 
 	pidString := fmt.Sprintf("%d", os.Getpid())
-	for i, format := range kprobeFormats {
+	for k, format := range kprobeFormats {
 		format = strings.Replace(format, "^^PID^^", pidString, -1)
 		filename := filepath.Join(tracingDir, "events", "capsule8",
-			fmt.Sprintf("sensor_%d_%d", os.Getpid(), i+1), "format")
+			fmt.Sprintf("sensor_%d_%s", os.Getpid(), k), "format")
 		writeFile(t, filename, ([]byte)(filename))
 	}
 
