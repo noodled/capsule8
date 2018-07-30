@@ -263,7 +263,7 @@ func (c *StubEventSourceController) Wait(timeoutAt int64) error {
 				return nil
 			}
 			now := sys.CurrentMonotonicRaw()
-			if now <= timeoutAt {
+			if timeoutAt <= now {
 				return unix.ETIMEDOUT
 			}
 			d := time.Duration(timeoutAt - now)

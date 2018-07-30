@@ -1,0 +1,53 @@
+Name:	sensor
+Umask:	0022
+State:	S (sleeping)
+Tgid:	76989
+Ngid:	0
+Pid:	76992
+PPid:	76988
+TracerPid:	0
+Uid:	0	0	0	0
+Gid:	0	0	0	0
+FDSize:	64
+Groups:	0 
+NStgid:	76989
+NSpid:	76992
+NSpgid:	76988
+NSsid:	13060
+VmPeak:	  444780 kB
+VmSize:	  404412 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	   34360 kB
+VmRSS:	   26628 kB
+RssAnon:	   20368 kB
+RssFile:	    6260 kB
+RssShmem:	       0 kB
+VmData:	  118944 kB
+VmStk:	     132 kB
+VmExe:	    4644 kB
+VmLib:	    2256 kB
+VmPTE:	     180 kB
+VmPMD:	      20 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+Threads:	12
+SigQ:	0/15659
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000000000
+SigCgt:	ffffffffffc1feff
+CapInh:	0000000000000000
+CapPrm:	0000003fffffffff
+CapEff:	0000003fffffffff
+CapBnd:	0000003fffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Cpus_allowed:	ffffffff,ffffffff,ffffffff,ffffffff
+Cpus_allowed_list:	0-127
+Mems_allowed:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	172762
+nonvoluntary_ctxt_switches:	7941

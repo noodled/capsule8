@@ -1,0 +1,53 @@
+Name:	vmware-vmblock-
+Umask:	0022
+State:	S (sleeping)
+Tgid:	405
+Ngid:	0
+Pid:	406
+PPid:	1
+TracerPid:	0
+Uid:	0	0	0	0
+Gid:	0	0	0	0
+FDSize:	64
+Groups:	 
+NStgid:	405
+NSpid:	406
+NSpgid:	405
+NSsid:	405
+VmPeak:	  150288 kB
+VmSize:	   93084 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	    2344 kB
+VmRSS:	    2344 kB
+RssAnon:	    2312 kB
+RssFile:	      32 kB
+RssShmem:	       0 kB
+VmData:	   17008 kB
+VmStk:	     132 kB
+VmExe:	      12 kB
+VmLib:	    2228 kB
+VmPTE:	      52 kB
+VmPMD:	      12 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+Threads:	3
+SigQ:	0/15659
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000004007
+SigIgn:	0000000000001000
+SigCgt:	0000000180004003
+CapInh:	0000000000000000
+CapPrm:	0000003fffffffff
+CapEff:	0000003fffffffff
+CapBnd:	0000003fffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Cpus_allowed:	ffffffff,ffffffff,ffffffff,ffffffff
+Cpus_allowed_list:	0-127
+Mems_allowed:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	2
+nonvoluntary_ctxt_switches:	2

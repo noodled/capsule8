@@ -122,12 +122,14 @@ func TestRegisterEventOptions(t *testing.T) {
 	expOptions.eventAttr = &EventAttr{}
 	expOptions.filter = "*** filter string ***"
 	expOptions.groupID = 88888
+	expOptions.name = "nnAAmmEE"
 
 	options := []RegisterEventOption{
 		WithEventDisabled(),
 		WithEventAttr(expOptions.eventAttr),
 		WithFilter(expOptions.filter),
 		WithEventGroup(expOptions.groupID),
+		WithTracingEventName(expOptions.name),
 	}
 
 	gotOptions := registerEventOptions{}
@@ -328,11 +330,11 @@ func TestEventMonitorGroup(t *testing.T) {
 			events:       newSafeRegisteredEventMap(),
 			eventAttrMap: newSafeEventAttrMap(),
 			eventIDMap:   newSafeUInt64Map(),
-			isRunning:    x == 1,
 		}
+		monitor.isRunning.Store(x == 1)
 
 		var name string
-		if monitor.isRunning {
+		if monitor.isRunning.Load().(bool) {
 			name = "unit test (running)"
 		} else {
 			name = "unit test"
@@ -535,7 +537,7 @@ func TestEventGroupRegistration(t *testing.T) {
 	equals(t, 1, len(monitor.groups))
 
 	defer func() {
-		monitor.isRunning = false
+		monitor.isRunning.Store(false)
 		monitor.Close()
 	}()
 
@@ -549,7 +551,7 @@ func TestEventGroupRegistration(t *testing.T) {
 	assert(t, err != nil, "Unexpected nil return for UnregisterEventGroup(867)")
 
 	for x := 0; x < 2; x++ {
-		monitor.isRunning = (x == 1)
+		monitor.isRunning.Store(x == 1)
 
 		id, err := monitor.RegisterEventGroup("")
 		ok(t, err)
@@ -971,10 +973,12 @@ func TestEnqueueExternalSample(t *testing.T) {
 	err = monitor.EnqueueExternalSample(eventid, SampleID{}, nil)
 	assert(t, err != nil, "expected non-nil for bad sample time")
 
-	received := false
+	received := 0
 	go monitor.Run(func(samples []EventMonitorSample) {
-		received = true
+		received++
 	})
+
+	time.Sleep(50 * time.Millisecond)
 
 	sample := SampleID{Time: uint64(sys.CurrentMonotonicRaw())}
 	err = monitor.EnqueueExternalSample(eventid, sample, nil)
@@ -987,7 +991,7 @@ func TestEnqueueExternalSample(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	monitor.Stop(true)
-	equals(t, true, received)
+	equals(t, 1, received)
 }
 
 func TestEnqueueSamples(t *testing.T) {

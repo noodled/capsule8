@@ -1,0 +1,53 @@
+Name:	bash
+Umask:	0022
+State:	S (sleeping)
+Tgid:	111343
+Ngid:	0
+Pid:	111343
+PPid:	111324
+TracerPid:	0
+Uid:	0	0	0	0
+Gid:	0	0	0	0
+FDSize:	256
+Groups:	0 1 2 3 4 6 10 11 20 26 27 
+NStgid:	111343	1
+NSpid:	111343	1
+NSpgid:	111343	1
+NSsid:	111343	1
+VmPeak:	    4404 kB
+VmSize:	    4404 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	    1912 kB
+VmRSS:	    1912 kB
+RssAnon:	     188 kB
+RssFile:	    1724 kB
+RssShmem:	       0 kB
+VmData:	     236 kB
+VmStk:	     132 kB
+VmExe:	    1056 kB
+VmLib:	    2932 kB
+VmPTE:	      40 kB
+VmPMD:	      12 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+Threads:	1
+SigQ:	0/15659
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000380004
+SigCgt:	000000004b817efb
+CapInh:	00000000a80425fb
+CapPrm:	00000000a80425fb
+CapEff:	00000000a80425fb
+CapBnd:	00000000a80425fb
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	2
+Cpus_allowed:	00000000,00000000,00000000,00000003
+Cpus_allowed_list:	0-1
+Mems_allowed:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	99
+nonvoluntary_ctxt_switches:	14

@@ -140,8 +140,7 @@ const taskReuseThreshold = int64(10 * time.Millisecond)
 
 const (
 	commitCredsAddress = "commit_creds"
-	commitCredsArgs    = "usage=+0(%di):u64 " +
-		"uid=+4(%di):u32 gid=+8(%di):u32 " +
+	commitCredsArgs    = "uid=+4(%di):u32 gid=+8(%di):u32 " +
 		"suid=+12(%di):u32 sgid=+16(%di):u32 " +
 		"euid=+20(%di):u32 egid=+24(%di):u32 " +
 		"fsuid=+28(%di):u32 fsgid=+32(%di):u32"
@@ -216,10 +215,8 @@ func newCredentials(
 	uid, euid, suid, fsuid uint32,
 	gid, egid, sgid, fsgid uint32,
 ) *Cred {
-	if uid == 0 && euid == 0 && suid == 0 && fsuid == 0 {
-		if gid == 0 && egid == 0 && sgid == 0 && fsgid == 0 {
-			return &rootCredentials
-		}
+	if uid+euid+suid+fsuid+gid+egid+sgid+fsgid == 0 {
+		return &rootCredentials
 	}
 
 	return &Cred{
@@ -256,9 +253,6 @@ func (c *cloneEvent) isExpired(t uint64) bool {
 		delta = t - c.timestamp
 	} else {
 		delta = c.timestamp - t
-	}
-	if delta > cloneEventThreshold {
-		fmt.Printf("cloneevent delta %d\n", delta)
 	}
 	return delta > cloneEventThreshold
 }
@@ -568,11 +562,13 @@ func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
 		eventName = doForkAddress
 		_, err = sensor.RegisterKprobe(eventName, false,
 			doForkFetchargs, cache.decodeDoFork,
+			perf.WithTracingEventName("dofork"),
 			perf.WithEventEnabled())
 		if err != nil {
 			eventName = "_" + eventName
 			_, err = sensor.RegisterKprobe(eventName, false,
 				doForkFetchargs, cache.decodeDoFork,
+				perf.WithTracingEventName("_dofork"),
 				perf.WithEventEnabled())
 			if err != nil {
 				glog.Fatalf("Couldn't register kprobe %s: %s",
@@ -584,11 +580,16 @@ func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
 		_, err = sensor.Monitor.RegisterTracepoint(eventName,
 			cache.decodeSchedProcessFork,
 			perf.WithEventEnabled())
+		if err != nil {
+			glog.Fatalf("Couldn't register kprobe %s: %s",
+				eventName, err)
+		}
 	}
 
 	eventName = doExitAddress
 	_, err = sensor.RegisterKprobe(eventName, false,
 		doExitArgs, cache.decodeDoExit,
+		perf.WithTracingEventName("doexit"),
 		perf.WithEventEnabled())
 	if err != nil {
 		glog.Fatalf("Couldn't register event %s: %s", eventName, err)
@@ -597,11 +598,13 @@ func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
 	// Attach kprobe on commit_creds to capture task privileges
 	_, err = sensor.RegisterKprobe(commitCredsAddress, false,
 		commitCredsArgs, cache.decodeCommitCreds,
+		perf.WithTracingEventName("creds"),
 		perf.WithEventEnabled())
 
 	// Attach kretprobe on set_fs_pwd to track working directories
 	_, err = sensor.RegisterKprobe(doSetFsPwd, true,
 		"", cache.decodeDoSetFsPwd,
+		perf.WithTracingEventName("setfspwd"),
 		perf.WithEventEnabled())
 
 	// Attach a probe to capture exec events in the kernel. Different
@@ -612,6 +615,7 @@ func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
 		sysExecveAddress, false,
 		sysExecveArgs+makeExecveFetchArgs("si"),
 		cache.decodeExecve,
+		perf.WithTracingEventName("execve1"),
 		perf.WithEventEnabled())
 	if err != nil {
 		glog.Fatalf("Couldn't register event %s: %s",
@@ -621,17 +625,20 @@ func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
 		doExecveAddress, false,
 		doExecveArgs+makeExecveFetchArgs("si"),
 		cache.decodeExecve,
+		perf.WithTracingEventName("execve2"),
 		perf.WithEventEnabled())
 
 	_, err = sensor.RegisterKprobe(
 		sysExecveatAddress, false,
 		sysExecveatArgs+makeExecveFetchArgs("dx"),
 		cache.decodeExecve,
+		perf.WithTracingEventName("execveat1"),
 		perf.WithEventEnabled())
 	if err == nil {
 		_, _ = sensor.RegisterKprobe(
 			doExecveatAddress, false,
 			makeExecveFetchArgs("dx"), cache.decodeExecve,
+			perf.WithTracingEventName("execveat2"),
 			perf.WithEventEnabled())
 	}
 
@@ -771,6 +778,7 @@ func (pc *ProcessInfoCache) installCgroupMonitor() error {
 
 	_, err := pc.sensor.RegisterKprobe(eventName, false,
 		fetchArgs, pc.decodeCgroupProcsWrite,
+		perf.WithTracingEventName("cgroups1"),
 		perf.WithEventEnabled())
 	if err != nil {
 		return fmt.Errorf("%s: %v", eventName, err)
@@ -779,6 +787,7 @@ func (pc *ProcessInfoCache) installCgroupMonitor() error {
 	if eventName2 != "" {
 		_, err := pc.sensor.RegisterKprobe(eventName2, false,
 			fetchArgs2, pc.decodeCgroupProcsWrite,
+			perf.WithTracingEventName("cgroups2"),
 			perf.WithEventEnabled())
 		if err != nil {
 			return fmt.Errorf("%s: %v", eventName2, err)
@@ -808,7 +817,7 @@ func (pc *ProcessInfoCache) LookupTaskContainerInfo(t *Task) *ContainerInfo {
 		t = t.Parent()
 	}
 	if i := t.ContainerInfo; i != nil {
-		return t.ContainerInfo
+		return i
 	}
 
 	if ID := t.ContainerID; len(ID) > 0 {
@@ -909,7 +918,7 @@ func (pc *ProcessInfoCache) handleSysClone(
 	}
 
 	if (cloneFlags & CLONE_THREAD) != 0 {
-		changes["TGID"] = parentTask.PID
+		changes["TGID"] = parentLeader.TGID
 	} else {
 		// This is a new thread group leader, tgid is the new pid
 		changes["TGID"] = childTask.PID
@@ -919,7 +928,7 @@ func (pc *ProcessInfoCache) handleSysClone(
 
 	// This must be done before filling in eventData, because otherwise
 	// childTask.ProcessID won't be set yet.
-	childTask.parent = parentTask
+	childTask.parent = parentLeader
 	childTask.Update(changes, sample.Time, pc.sensor.ProcFS)
 
 	eventData := map[string]interface{}{
@@ -977,7 +986,7 @@ func (pc *ProcessInfoCache) decodeDoExit(
 		eventData["exit_status"] = uint32(ws.ExitStatus())
 		eventData["exit_signal"] = uint32(0)
 		eventData["exit_core_dumped"] = false
-	} else {
+	} else if ws.Signaled() {
 		eventData["exit_status"] = uint32(0)
 		eventData["exit_signal"] = uint32(ws.Signal())
 		eventData["exit_core_dumped"] = ws.CoreDump()
@@ -1001,10 +1010,6 @@ func (pc *ProcessInfoCache) decodeCommitCreds(
 	data perf.TraceEventSampleData,
 ) (interface{}, error) {
 	pid := int(data["common_pid"].(int32))
-
-	if usage := data["usage"].(uint64); usage == 0 {
-		glog.Fatal("Received commit_creds with zero usage")
-	}
 
 	changes := map[string]interface{}{
 		"Creds": &Cred{
@@ -1111,7 +1116,7 @@ func (pc *ProcessInfoCache) decodeDoFork(
 				timestamp:  sample.Time,
 				cloneFlags: cloneFlags,
 			}
-		} else {
+		} else if t.pendingClone.childPid != 0 {
 			c := t.pendingClone
 			t.pendingClone = nil
 

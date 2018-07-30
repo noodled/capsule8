@@ -90,7 +90,9 @@ func (s *Subscription) RegisterChargenEventFilter(
 		return
 	}
 	es.unregister = func(es *eventSink) {
-		s.sensor.Monitor.UnregisterEvent(es.eventID)
+		if monitor := s.sensor.Monitor; monitor != nil {
+			monitor.UnregisterEvent(es.eventID)
+		}
 		close(done)
 	}
 
