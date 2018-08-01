@@ -104,8 +104,6 @@ const (
 
 	execveArgCount = 6
 
-	doExecveAddress    = "do_execve"
-	doExecveArgs       = "filename=+0(+0(%di)):string "
 	doExecveatAddress  = "do_execveat"
 	doExecveatArgs     = "filename=+0(+0(%si)):string "
 	sysExecveAddress   = "sys_execve"
@@ -565,11 +563,6 @@ func NewProcessInfoCache(sensor *Sensor) *ProcessInfoCache {
 		glog.Fatalf("Couldn't register event %s: %s",
 			sysExecveAddress, err)
 	}
-	_, _ = sensor.RegisterKprobe(
-		doExecveAddress, false,
-		doExecveArgs+makeExecveFetchArgs("si"),
-		cache.decodeExecve,
-		perf.WithEventEnabled())
 
 	_, err = sensor.RegisterKprobe(
 		sysExecveatAddress, false,
