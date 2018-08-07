@@ -120,6 +120,13 @@ func WithCleanupFunc(cleanupFunc func()) NewSensorOption {
 	}
 }
 
+// WithCgroupName configures a cgroup name to be monitored.
+func WithCgroupName(cgroupName string) NewSensorOption {
+	return func(o *newSensorOptions) {
+		o.cgroupNames = append(o.cgroupNames, cgroupName)
+	}
+}
+
 // Number of random bytes to generate for Sensor Id
 const sensorIDLengthBytes = 32
 
@@ -141,10 +148,12 @@ type Sensor struct {
 	Metrics MetricsCounters
 
 	// If temporary fs mounts are made at startup, they're stored here.
-	perfEventDir        string
-	tracingDir          string
-	perfEventDirMounted bool
-	tracingDirMounted   bool
+	perfEventDir string
+	tracingDir   string
+	/*
+		perfEventDirMounted bool
+		tracingDirMounted   bool
+	*/
 
 	// A sensor-global event monitor that is used for events to aid in
 	// caching process information
@@ -281,7 +290,6 @@ func (s *Sensor) Start() error {
 			glog.V(1).Info(err)
 			return err
 		}
-		s.cleanupFuncs = append(s.cleanupFuncs, s.unmountTraceFS)
 	}
 
 	// If there is no mounted cgroupfs for the perf_event cgroup, we can't
@@ -293,9 +301,6 @@ func (s *Sensor) Start() error {
 		if err := s.mountPerfEventCgroupFS(); err != nil {
 			glog.V(1).Info(err)
 			// This is not a fatal error condition, proceed on
-		} else {
-			s.cleanupFuncs = append(s.cleanupFuncs,
-				s.unmountPerfEventCgroupFS)
 		}
 	}
 
@@ -378,19 +383,14 @@ func (s *Sensor) mountTraceFS() error {
 	err := sys.MountTempFS("tracefs", dir, "tracefs", 0, "")
 	if err == nil {
 		s.tracingDir = dir
-		s.tracingDirMounted = true
+		s.cleanupFuncs = append(s.cleanupFuncs, func() {
+			err = sys.UnmountTempFS(dir, "tracefs")
+			if err != nil {
+				glog.V(2).Infof("Could not unmount %s: %v", dir, err)
+			}
+		})
 	}
 	return err
-}
-
-func (s *Sensor) unmountTraceFS() {
-	err := sys.UnmountTempFS(s.tracingDir, "tracefs")
-	if err == nil {
-		s.tracingDir = ""
-		s.tracingDirMounted = false
-	} else {
-		glog.V(2).Infof("Could not unmount %s: %s", s.tracingDir, err)
-	}
 }
 
 func (s *Sensor) mountPerfEventCgroupFS() error {
@@ -398,19 +398,14 @@ func (s *Sensor) mountPerfEventCgroupFS() error {
 	err := sys.MountTempFS("cgroup", dir, "cgroup", 0, "perf_event")
 	if err == nil {
 		s.perfEventDir = dir
-		s.perfEventDirMounted = true
+		s.cleanupFuncs = append(s.cleanupFuncs, func() {
+			err = sys.UnmountTempFS(dir, "cgroup")
+			if err != nil {
+				glog.V(2).Infof("Could not unmount %s: %v", dir, err)
+			}
+		})
 	}
 	return err
-}
-
-func (s *Sensor) unmountPerfEventCgroupFS() {
-	err := sys.UnmountTempFS(s.perfEventDir, "cgroup")
-	if err == nil {
-		s.perfEventDir = ""
-		s.perfEventDirMounted = false
-	} else {
-		glog.V(2).Infof("Could not unmount %s: %s", s.perfEventDir, err)
-	}
 }
 
 func (s *Sensor) buildMonitorGroups() ([]string, []int, error) {
@@ -523,6 +518,34 @@ func (s *Sensor) IsKernelSymbolAvailable(symbol string) bool {
 	return ok
 }
 
+// ActualKernelSymbol returns the actual kernel symbol to use. For some symbols,
+// the linker does some rewriting and system calls have different prefixes in
+// Linux 4.17+ kernels.
+func (s *Sensor) ActualKernelSymbol(symbol string) (string, error) {
+	if s.kallsyms != nil {
+		if actual, ok := s.kallsyms[symbol]; ok {
+			if actual != symbol {
+				glog.V(2).Infof("Using %q for kprobe symbol %q",
+					actual, symbol)
+				return actual, nil
+			}
+		} else if strings.HasPrefix(symbol, "sys_") {
+			// Linux 4.17 changes how syscall handlers are done. It adds a `__x64_`
+			// prefix and also changes how arguments are handled in the syscall handler.
+			// Automatically try to prepend `__x64_` if we're registering a kprobe
+			// on a syscall handler, and if it succeeds, rewrite the kprobe fetch args.
+			if actual, ok := s.kallsyms["__x64_"+symbol]; ok {
+				glog.V(2).Infof("Using %q for kprobe symbol %q",
+					actual, symbol)
+				return actual, nil
+			}
+		} else {
+			return "", fmt.Errorf("Kernel symbol not found: %s", symbol)
+		}
+	}
+	return symbol, nil
+}
+
 // Map for rewriting kprobe fetch args in kernel 4.17+
 // N.B. %di must come first to avoid replacing a %di in an already replaced
 // expression.
@@ -541,6 +564,18 @@ var fetchArgsReplacements = [][2]string{
 	{"%ax", "+0x50(%di)"},
 }
 
+func rewriteSyscallFetchargs(fetchargs string) string {
+	// rewrite `output` (the kprobe fetch args) to account for
+	// the only argument to the syscall handler being `pt_regs *regs`
+	for _, rewritePair := range fetchArgsReplacements {
+		srcReg := rewritePair[0]
+		dstExpr := rewritePair[1]
+		fetchargs = strings.Replace(fetchargs, srcReg, dstExpr, -1)
+	}
+	glog.V(2).Infof("Rewrote kprobe fetch args to %q", fetchargs)
+	return fetchargs
+}
+
 // RegisterKprobe registers a kprobe with the sensor's EventMonitor instance,
 // but before doing so, ensures that the kernel symbol is available and potentially
 // transforms it to account for new kernel changes.
@@ -551,38 +586,12 @@ func (s *Sensor) RegisterKprobe(
 	fn perf.TraceEventDecoderFn,
 	options ...perf.RegisterEventOption,
 ) (uint64, error) {
-	if s.kallsyms != nil {
-		if actual, ok := s.kallsyms[address]; ok {
-			if actual != address {
-				glog.V(2).Infof("Using %q for kprobe symbol %q", actual, address)
-				address = actual
-			}
-		} else {
-			// Linux 4.17 changes how syscall handlers are done. It adds a `__x64_`
-			// prefix and also changes how arguments are handled in the syscall handler.
-			// Automatically try to prepend `__x64_` if we're registering a kprobe
-			// on a syscall handler, and if it succeeds, rewrite the kprobe fetch args.
-			if strings.HasPrefix(address, "sys_") {
-				actual, ok := s.kallsyms["__x64_"+address]
-				if ok {
-					glog.V(2).Infof("Using %q for kprobe symbol %q", actual, address)
-					address = actual
-
-					// rewrite `output` (the kprobe fetch args) to account for
-					// the only argument to the syscall handler being `pt_regs *regs`
-					for _, rewritePair := range fetchArgsReplacements {
-						srcReg := rewritePair[0]
-						dstExpr := rewritePair[1]
-						output = strings.Replace(output, srcReg, dstExpr, -1)
-					}
-					glog.V(2).Infof("Rewrote kprobe fetch args to %q", output)
-				} else {
-					return 0, fmt.Errorf("Kernel symbol not found: %s", address)
-				}
-			} else {
-				return 0, fmt.Errorf("Kernel symbol not found: %s", address)
-			}
-		}
+	address, err := s.ActualKernelSymbol(address)
+	if err != nil {
+		return 0, err
+	}
+	if strings.HasPrefix(address, "__x64_sys_") {
+		output = rewriteSyscallFetchargs(output)
 	}
 	return s.Monitor.RegisterKprobe(address, onReturn, output, fn, options...)
 }
@@ -675,12 +684,12 @@ func (s *Sensor) dispatchQueuedSamples(samples []perf.EventMonitorSample) {
 					continue
 				}
 			}
-			s := es.subscription
+			subscr := es.subscription
 			containerInfo := event.CommonTelemetryEventData().Container
-			if !s.containerFilter.Match(containerInfo) {
+			if !subscr.containerFilter.Match(containerInfo) {
 				continue
 			}
-			s.dispatchFn(event)
+			subscr.dispatchFn(event)
 		}
 	}
 }

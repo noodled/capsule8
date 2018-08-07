@@ -1365,11 +1365,16 @@ func (monitor *EventMonitor) SetFilter(eventid uint64, filter string) error {
 	defer monitor.lock.Unlock()
 
 	if event, ok := monitor.events.lookup(eventid); ok {
+		if event.eventType == EventTypeExternal {
+			return errors.New("Cannot set filters for external events")
+		}
 		for _, source := range event.sources {
 			if err := source.SetFilter(filter); err != nil {
 				return err
 			}
 		}
+	} else {
+		return fmt.Errorf("Event %d does not exist", eventid)
 	}
 
 	return nil
